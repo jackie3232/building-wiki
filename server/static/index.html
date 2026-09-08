@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>工程数据发动机 · BUILDING.WIKI</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<script type="importmap">
+{"imports":{"three":"/static/vendor/three.module.min.js","three/addons/controls/OrbitControls.js":"/static/vendor/OrbitControls.js"}}
+</script>
+</head>
+<body>
+<div id="scene-container"></div>
+
+<div id="hud-top">
+  <span class="logo">BUILDING.WIKI</span>
+</div>
+
+<div id="hud-status" class="hidden"></div>
+
+<div id="hud-bottom">
+  <div id="input-wrap">
+    <input id="cmd-input" type="text"
+           placeholder="描述你想构建的空间… 例如：帮我创建 5 个 Box"
+           autocomplete="off" spellcheck="false" />
+    <button id="cmd-send" aria-label="发送">&#8593;</button>
+  </div>
+  <div id="hint">回车发送&ensp;·&ensp;试试「帮我创建 6 个 Box」「清空」</div>
+</div>
+
+<button id="btn-clear" title="清空场景">清空</button>
+
+<script type="module" src="/static/js/main.js"></script>
+</body>
+</html>
