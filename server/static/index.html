@@ -1,34 +1,38 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<html lang="zh-CN" data-page-node-id="ggUEgDwxZMMJpmfYGFMhvX">
+<head data-page-node-id="XwNNEpTO4oyIWK6kzwVr2C">
+<meta charset="UTF-8" data-page-node-id="8wDmIza1mWULtBw2w797eB">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="iA3ykmFYWeSWlf3GG8i5W0">
 <title>工程数据发动机 · BUILDING.WIKI</title>
-<link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/style.css" data-page-node-id="ntxWejKstltQjbYKGx0Y6V">
 <script type="importmap">
 {"imports":{"three":"/static/vendor/three.module.min.js","three/addons/controls/OrbitControls.js":"/static/vendor/OrbitControls.js"}}
 </script>
 </head>
-<body>
-<div id="scene-container"></div>
+<body data-page-node-id="iWPH2GOOhvpwyawyTEqZS1">
+<div id="scene-container" data-page-node-id="WOhgeEX9gj0Mi7ORZrWP6L"></div>
 
-<div id="hud-top">
-  <span class="logo">BUILDING.WIKI</span>
+<div id="hud-top" data-page-node-id="Yg7hql3ACnyjGGl7BVHwX8">
+  <span class="logo" data-page-node-id="usX4pdObUik8l1Eq9znre0">BUILDING.WIKI</span>
 </div>
 
-<div id="hud-status" class="hidden"></div>
+<div id="hud-status" class="hidden" data-page-node-id="YhmXOHKI4u2mDWIPKPIAJJ"></div>
 
-<div id="hud-bottom">
-  <div id="input-wrap">
+<div id="hud-bottom" data-page-node-id="DHCQTPT6IrFbblk8OfiJ4o">
+  <div id="input-wrap" data-page-node-id="AlNAaAUacbdGbMg3EmePSO">
     <input id="cmd-input" type="text"
-           placeholder="描述你想构建的空间… 例如：帮我创建 5 个 Box"
-           autocomplete="off" spellcheck="false" />
-    <button id="cmd-send" aria-label="发送">&#8593;</button>
+           placeholder="输入任意内容生成案例楼栋 · 例如：建个楼 / 清空 / 或直接粘贴图谱 JSON"
+           autocomplete="off" spellcheck="false" data-page-node-id="sVlSc6gvicRrnqvzN1B9gL" />
+    <button id="cmd-send" aria-label="发送" data-page-node-id="6aaJsCKYQpICoI6OSCx9ZW">&#8593;</button>
   </div>
-  <div id="hint">回车发送&ensp;·&ensp;试试「帮我创建 6 个 Box」「清空」</div>
+  <div id="side-actions">
+    <button id="btn-upload" type="button">⬆ 上传图谱 JSON</button>
+    <input id="graph-file" type="file" accept=".json,application/json" hidden />
+  </div>
+  <div id="hint" data-page-node-id="cnQZKF5CwNZ7PEdezYXBgH">回车发送&ensp;·&ensp;试试「建个楼」「清空」&ensp;·&ensp;或上传 / 粘贴符合格式的图谱 JSON</div>
 </div>
 
-<button id="btn-clear" title="清空场景">清空</button>
+<button id="btn-clear" title="清空场景" data-page-node-id="Kr7NsojdyD0QoYeFWrh8X6">清空</button>
 
 <script type="module" src="/static/js/main.js"></script>
 </body>

@@ -107,3 +107,14 @@ html, body {
   z-index: 10;
 }
 #btn-clear:hover { color: var(--text); border-color: rgba(15, 23, 42, 0.28); }
+
+/* ---------- 上传图谱 ---------- */
+#side-actions { display: flex; justify-content: center; }
+#btn-upload {
+  padding: 7px 18px; border-radius: 999px;
+  background: var(--panel); border: 1px solid var(--panel-border);
+  color: var(--text); font-size: 13px; cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+#btn-upload:hover { color: var(--accent); border-color: rgba(110, 168, 254, 0.55); }
