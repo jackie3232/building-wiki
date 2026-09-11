@@ -2,6 +2,7 @@
 #include "RandomColor.h"
 #include <vector>
 #include "Quantity_NameOfColor.hxx"
+#include <algorithm>
 #include <random>
 #include <map>
 
