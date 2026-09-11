@@ -110,17 +110,15 @@ function parseSTLBinary(buf) {
 
 // 把 STL 几何变换到与 box 视图一致的坐标系：Z-up → Y-up，并 mm → m。
 //
-// 这里用「互换 Y/Z」的矩阵（行列式 -1，属镜像反射）：newX = X, newY = Z, newZ = Y。
-// 它会翻转三角面的绕序（winding），因此随后 computeVertexNormals() 按新绕序算出的法线
-// 会指向实体内部（与 STL 原始外向法线相反）。
+// 矩阵为「互换 Y/Z」（行列式 -1，镜像反射）：newX = X, newY = Z, newZ = Y。
+// applyMatrix4 会按「逆转置矩阵」同步变换已写入的 normal（three 内部随之归一化）；
+// 对正交矩阵该逆转置即其自身，故 STL 的原始外向法线变换后仍朝外。
+// 这里刻意不调用 computeVertexNormals()：它按「变换后的绕序」重算，而镜像已把绕序翻转，
+// 重算结果会把法线翻成内向——那正是上一版法线异常的来源（实测 1452/1452 个顶点反向）。
 //
-// 但这在本项目里不构成问题：材质用的是 THREE.DoubleSide，three.js 片元着色器在
-// DOUBLE_SIDED 分支下会依据 gl_FrontFacing 把背面法线取反
-//   float faceDirection = gl_FrontFacing ? 1.0 : -1.0;  normal *= faceDirection;
-// 于是无论法线存的是内向还是外向，「朝向相机可见面」的最终着色都等价——这也是「面片」
-// 观感的真正来源是此前的楼板/屋顶剔除、而非矩阵的原因。镜像与旋转矩阵在 DoubleSide 下
-// 效果一致，唯一可感知差异只是镜像会把模型南北方向翻转一次；既然着色无实质收益，就
-// 保持本来的镜像矩阵，不引入多余改动。
+// 绕序被翻转的副作用：若用 THREE.FrontSide，朝向相机的外表面会被误判为背面而剔除
+// （实测弃用 DoubleSide 后「看到的更少」），故材质必须用 THREE.DoubleSide；其片元着色器
+// 在 DOUBLE_SIDED 分支下按 gl_FrontFacing 取反背面法线，两侧均正确着色。
 function transformToScene(geo) {
   const m = new THREE.Matrix4().set(
     1, 0, 0, 0,
@@ -128,9 +126,8 @@ function transformToScene(geo) {
     0, 1, 0, 0,
     0, 0, 0, 1
   );
-  geo.applyMatrix4(m);
-  geo.scale(0.001, 0.001, 0.001);
-  geo.computeVertexNormals();
+  geo.applyMatrix4(m);            // Z-up → Y-up（正交镜像：法线保持外向，three 内部已自动归一化）
+  geo.scale(0.001, 0.001, 0.001); // mm → m
   return geo;
 }
 
@@ -148,8 +145,8 @@ async function loadSTL(filename) {
     console.log(`[STL] 三角面 ${stats.total}（原样渲染，不做任何剔除）`);
   }
   transformToScene(geo);
-  // 该 STL 由一块块独立 box / 薄板拼出，大量面是单层薄壳（楼板/屋顶多为单面），
-  // 必须 DoubleSide 渲染背面，否则从缝隙/内侧看进去全是空的（实测去掉后"看到的更少"）。
+  // 材质必须 DoubleSide：原因见 transformToScene——镜像矩阵翻转绕序，
+  // FrontSide 会把朝向相机的外表面误判为背面而剔除（实测「看到的更少」）。
   const mesh = new THREE.Mesh(
     geo,
     new THREE.MeshStandardMaterial({ color: 0x9aa3af, roughness: 0.6, metalness: 0.05, side: THREE.DoubleSide })
