@@ -218,7 +218,7 @@ MyString MyWString::toString() const
 
 	return MyString(str.c_str());
 #else
-	return MyString(wToUtf8(std::string(_impl->str)).c_str());
+	return MyString(wToUtf8(_impl->str).c_str());
 #endif
 }
 
