@@ -29,13 +29,14 @@ rimLight.position.set(-10, 6, -12);
 scene.add(rimLight);
 
 /* ---------------- 地面网格（无限地面） ---------------- */
-// 超大网格 + 跟随相机吸附格点 + 雾远裁切，营造「无限延展地面」观感；
-// 不是有限方块——网格始终在相机下方、边界落在雾外，故看不到边界。
+// 超大网格 + 锚定模型中心 + 雾远裁切，营造「无限延展地面」观感；
+// 网格中心十字对齐模型中心，地面与模型咬合；边界落在雾外故看不到边界。
 const GRID_CELL = 1;                       // 格宽（米）
 const GRID_EXTENT = 500;                   // 半边长（米），足够大，配合雾远裁切看不到边界
 const grid = new THREE.GridHelper(GRID_EXTENT * 2, (GRID_EXTENT * 2) / GRID_CELL, 0xb9c1cd, 0xdfe3ea);
 grid.position.y = -0.01;
 scene.add(grid);
+let modelCenter = new THREE.Vector3();   // 网格锚定的模型中心（载入模型后由 fitCameraToObject 写入）
 
 /* ---------------- 控制器 ---------------- */
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -165,6 +166,7 @@ function fitCameraToObject(object) {
   if (box.isEmpty()) return;
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
+  modelCenter.copy(center);   // 记录模型中心，供 animate() 把网格锚定到模型（而非相机）
 
   // 以包围盒半径和相机 FOV 反算恰好容纳所需的距离
   const radius = Math.max(size.length() * 0.5, 1e-3);
@@ -346,10 +348,11 @@ clearBtn.addEventListener("click", () => { clearSTL(); setStatus("场景已清�
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
-  // 网格跟随相机在 XZ 平移并吸附到格点 → 始终像无限延展的地面，边界永远在视野/雾外、不可见
+  // 网格锚定模型中心（不再跟随相机）→ 模型、旋转中心、网格十字三者合一，地面与模型咬合；
+  // 仍保持超大尺寸 + 雾远裁切，正常视角下依旧像无限地面。
   const snap = (v) => Math.round(v / GRID_CELL) * GRID_CELL;
-  grid.position.x = snap(camera.position.x);
-  grid.position.z = snap(camera.position.z);
+  grid.position.x = snap(modelCenter.x);
+  grid.position.z = snap(modelCenter.z);
   renderer.render(scene, camera);
 }
 
