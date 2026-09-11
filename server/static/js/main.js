@@ -53,76 +53,30 @@ let currentSTL = null;            // 当前已加载的真实几何 mesh
 // 自包含 STL 解析（不依赖外部 loader，离线可用）：ASCII 优先，二进制兜底。
 // 返回 THREE.BufferGeometry（mm, Z-up）。
 //
-// 可选：剔除「楼板/屋顶大平板」。这些板由 modelling 按空间逐个生成（Slab 厚 300、
-// 屋顶位于层高附近），拼起来会盖满整个院落外轮廓，从外面看就是一个封闭大盒子，
-// 完全看不到内部墙体与门窗洞。此处按「水平面且所在标高被大面积铺满」自动识别并剔除，
-// 从而露出内部结构；门/窗洞的顶面（面积很小）不受影响。
-function isHorizontalPlateLayer(plateZ, layers, footprintArea) {
-  // 某标高上所有水平面的总面积接近整个外轮廓面积 → 判为楼板/屋顶层
-  const area = layers.get(plateZ) || 0;
-  return area > footprintArea * 0.5;
-}
-
-function collectHorizontalLayers(tris) {
-  // tris: [{nx,ny,nz,area,z}] → 返回 Map(z → 总面积)
-  const layers = new Map();
-  for (const t of tris) {
-    if (Math.abs(t.nz) < 0.9) continue;
-    const z = Math.round(t.z);
-    layers.set(z, (layers.get(z) || 0) + t.area);
-  }
-  return layers;
-}
-
+// 历史注记：此处曾有「按面积阈值剔除楼板/屋顶大平板」的逻辑（isHorizontalPlateLayer +
+// dropZ）。该逻辑是为绕开「庭院被误判为室内 → 盖满楼板/屋顶 → 看似大盒子」的问题，但
+// 那只治标：编码对齐从源头修复后（voxelcli 侧把名称转 GBK 送引擎），引擎已能正确判定
+// 庭院/室内，不再给庭院盖板，无需前端剔除。且该剔除会**拆散板的对偶面**（如楼板底面
+// z=0 被剔、只剩顶面 z=300），把有厚度的板变成无厚度单层薄片，正是「一个个面片」的来源。
+// 故彻底移除，STL 原样渲染。
 function parseSTLText(text, opts) {
   opts = opts || {};
-  const dropPlates = opts.dropPlates !== false; // 默认剔除楼板/屋顶
   const positions = [];
   const normals = [];
   const re = /facet\s+normal\s+([-\d.eE+]+)\s+([-\d.eE+]+)\s+([-\d.eE+]+)[\s\S]*?vertex\s+([-\d.eE+]+)\s+([-\d.eE+]+)\s+([-\d.eE+]+)\s+vertex\s+([-\d.eE+]+)\s+([-\d.eE+]+)\s+([-\d.eE+]+)\s+vertex\s+([-\d.eE+]+)\s+([-\d.eE+]+)\s+([-\d.eE+]+)/g;
 
-  // 第一遍：收集所有三角面，统计水平层的面积分布与外轮廓
-  const tris = [];
   let m;
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  let count = 0;
   while ((m = re.exec(text)) !== null) {
     const nx = parseFloat(m[1]), ny = parseFloat(m[2]), nz = parseFloat(m[3]);
-    const v = [];
     for (let i = 0; i < 3; i++) {
       const b = 4 + i * 3;
-      v.push([parseFloat(m[b]), parseFloat(m[b + 1]), parseFloat(m[b + 2])]);
+      positions.push(parseFloat(m[b]), parseFloat(m[b + 1]), parseFloat(m[b + 2]));
+      normals.push(nx, ny, nz);
     }
-    const z = (v[0][2] + v[1][2] + v[2][2]) / 3;
-    const area = Math.abs((v[1][0] - v[0][0]) * (v[2][1] - v[0][1]) - (v[2][0] - v[0][0]) * (v[1][1] - v[0][1])) / 2;
-    for (const p of v) {
-      if (p[0] < minX) minX = p[0];
-      if (p[0] > maxX) maxX = p[0];
-      if (p[1] < minY) minY = p[1];
-      if (p[1] > maxY) maxY = p[1];
-    }
-    tris.push({ nx, ny, nz, z, area, v });
+    count++;
   }
-
-  // 判定需要剔除的标高（楼板/屋顶层）
-  const footprint = Math.max((maxX - minX) * (maxY - minY), 1);
-  const layers = collectHorizontalLayers(tris);
-  const dropZ = new Set();
-  if (dropPlates) {
-    for (const [z, a] of layers) {
-      if (isHorizontalPlateLayer(z, layers, footprint)) dropZ.add(z);
-    }
-  }
-
-  // 第二遍：输出保留的三角面
-  let dropped = 0;
-  for (const t of tris) {
-    if (Math.abs(t.nz) >= 0.9 && dropZ.has(Math.round(t.z))) { dropped++; continue; }
-    for (let i = 0; i < 3; i++) {
-      positions.push(t.v[i][0], t.v[i][1], t.v[i][2]);
-      normals.push(t.nx, t.ny, t.nz);
-    }
-  }
-  if (opts.onStats) opts.onStats({ total: tris.length, dropped, dropZ: [...dropZ].sort((a, b) => a - b) });
+  if (opts.onStats) opts.onStats({ total: count });
 
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
@@ -154,7 +108,19 @@ function parseSTLBinary(buf) {
   return g;
 }
 
-// 把 STL 几何变换到与 box 视图一致的坐标系：互换 Y/Z + 缩放 0.001（反射矩阵，用 DoubleSide 保正面）
+// 把 STL 几何变换到与 box 视图一致的坐标系：Z-up → Y-up，并 mm → m。
+//
+// 这里用「互换 Y/Z」的矩阵（行列式 -1，属镜像反射）：newX = X, newY = Z, newZ = Y。
+// 它会翻转三角面的绕序（winding），因此随后 computeVertexNormals() 按新绕序算出的法线
+// 会指向实体内部（与 STL 原始外向法线相反）。
+//
+// 但这在本项目里不构成问题：材质用的是 THREE.DoubleSide，three.js 片元着色器在
+// DOUBLE_SIDED 分支下会依据 gl_FrontFacing 把背面法线取反
+//   float faceDirection = gl_FrontFacing ? 1.0 : -1.0;  normal *= faceDirection;
+// 于是无论法线存的是内向还是外向，「朝向相机可见面」的最终着色都等价——这也是「面片」
+// 观感的真正来源是此前的楼板/屋顶剔除、而非矩阵的原因。镜像与旋转矩阵在 DoubleSide 下
+// 效果一致，唯一可感知差异只是镜像会把模型南北方向翻转一次；既然着色无实质收益，就
+// 保持本来的镜像矩阵，不引入多余改动。
 function transformToScene(geo) {
   const m = new THREE.Matrix4().set(
     1, 0, 0, 0,
@@ -179,9 +145,11 @@ async function loadSTL(filename) {
     ? parseSTLText(new TextDecoder().decode(buf), { onStats: (s) => Object.assign(stats, s) })
     : parseSTLBinary(buf);
   if (stats.total) {
-    console.log(`[STL] 三角面 ${stats.total}，剔除楼板/屋顶 ${stats.dropped} 面（标高 ${stats.dropZ.join(", ")} mm）`);
+    console.log(`[STL] 三角面 ${stats.total}（原样渲染，不做任何剔除）`);
   }
   transformToScene(geo);
+  // 该 STL 由一块块独立 box / 薄板拼出，大量面是单层薄壳（楼板/屋顶多为单面），
+  // 必须 DoubleSide 渲染背面，否则从缝隙/内侧看进去全是空的（实测去掉后"看到的更少"）。
   const mesh = new THREE.Mesh(
     geo,
     new THREE.MeshStandardMaterial({ color: 0x9aa3af, roughness: 0.6, metalness: 0.05, side: THREE.DoubleSide })
