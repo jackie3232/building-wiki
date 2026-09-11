@@ -28,8 +28,12 @@ const rimLight = new THREE.DirectionalLight(0x6ea8fe, 0.35);
 rimLight.position.set(-10, 6, -12);
 scene.add(rimLight);
 
-/* ---------------- 地面网格 ---------------- */
-const grid = new THREE.GridHelper(44, 22, 0xb9c1cd, 0xdfe3ea);
+/* ---------------- 地面网格（无限地面） ---------------- */
+// 超大网格 + 跟随相机吸附格点 + 雾远裁切，营造「无限延展地面」观感；
+// 不是有限方块——网格始终在相机下方、边界落在雾外，故看不到边界。
+const GRID_CELL = 1;                       // 格宽（米）
+const GRID_EXTENT = 500;                   // 半边长（米），足够大，配合雾远裁切看不到边界
+const grid = new THREE.GridHelper(GRID_EXTENT * 2, (GRID_EXTENT * 2) / GRID_CELL, 0xb9c1cd, 0xdfe3ea);
 grid.position.y = -0.01;
 scene.add(grid);
 
@@ -186,12 +190,12 @@ function fitCameraToObject(object) {
   camera.far = dist * 20;
   camera.updateProjectionMatrix();
 
-  // 地面网格随模型尺度调整，避免尺度错配
-  const span = Math.max(size.x, size.z);
-  grid.scale.setScalar(span / 44);
+  // 地面网格：保持超大尺寸（无限地面观感），仅把网格面贴到模型底部；
+  // 真正的「无限」由 animate() 中网格跟随相机并吸附到格点实现——边界始终落在雾外、不可见。
   grid.position.y = box.min.y - 0.01;
+
   scene.fog.near = dist * 0.8;
-  scene.fog.far = dist * 3;
+  scene.fog.far = dist * 4;
 }
 
 function clearSTL() {
@@ -342,6 +346,10 @@ clearBtn.addEventListener("click", () => { clearSTL(); setStatus("场景已清�
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
+  // 网格跟随相机在 XZ 平移并吸附到格点 → 始终像无限延展的地面，边界永远在视野/雾外、不可见
+  const snap = (v) => Math.round(v / GRID_CELL) * GRID_CELL;
+  grid.position.x = snap(camera.position.x);
+  grid.position.z = snap(camera.position.z);
   renderer.render(scene, camera);
 }
 
