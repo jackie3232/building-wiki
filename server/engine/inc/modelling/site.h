@@ -683,4 +683,4 @@ namespace meta_impl
 		Buildings _buildings;
 	};
 
-} // namespace meta
+} // namespace meta_impl

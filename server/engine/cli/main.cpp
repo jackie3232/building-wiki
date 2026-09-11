@@ -252,10 +252,9 @@ static void processStorey(Stats& stats,
               << " doors=" << stats.doors << "\n";
 
     // ---- 真实 B-Rep（含门/窗开口）累积到 outComp，供导出 STL ----
-    // 注意：Storey::modelling() 末尾恒返回 false（源码写死），但成功时已把 body push 进
-    // CompoundBody，故不能依赖返回值，改查 bodyCount()。
+    // Storey::modelling() 现返回是否产出几何（bodyCount()>0），body 已 push 进 CompoundBody。
     CompoundBody cb;
-    st.modelling(cb);
+    bool ok = st.modelling(cb);
     {
         int n = cb.bodyCount();
         for (int i = 0; i < n; ++i)
@@ -264,7 +263,8 @@ static void processStorey(Stats& stats,
             if (!sh.IsNull()) builder.Add(outComp, sh);
         }
         stats.brepBodies += n;
-        std::cout << "[S" << floorIdx << "] B-Rep bodies=" << n << "\n";
+        std::cout << "[S" << floorIdx << "] modelling ok=" << (ok ? 1 : 0)
+                  << " B-Rep bodies=" << n << "\n";
     }
 }
 
@@ -273,10 +273,10 @@ int main(int argc, char** argv)
     std::cout << std::unitbuf;
     std::string jsonPath = (argc > 1)
         ? argv[1]
-        : "D:/sourcecodes/building.wiki/server/data/case_6.json";
+        : "case_6.json";
     std::string outPath = (argc > 2)
         ? argv[2]
-        : "D:/sourcecodes/building.wiki/server/data/shapes_case6.json";
+        : "shapes_case6.json";
 
     std::ifstream ifs(std::filesystem::u8path(jsonPath), std::ios::binary);
     if (!ifs) { std::cerr << "[ERR] cannot open json: " << jsonPath << "\n"; return 1; }
@@ -327,7 +327,7 @@ int main(int argc, char** argv)
               << " brepBodies=" << stats.brepBodies << "\n";
 
     std::ostringstream out;
-    out << "{\n  \"source\": \"case_6\",\n  \"unit\": \"mm\",\n  \"scale\": 0.001,\n"
+    out << "{\n  \"unit\": \"mm\",\n  \"scale\": 0.001,\n"
         << "  \"stl\": \"" << stlBase << "\",\n"
         << "  \"stats\": {\"buildings\":" << stats.buildings
         << ",\"storeys\":" << stats.storeys

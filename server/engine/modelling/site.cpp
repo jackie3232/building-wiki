@@ -2467,7 +2467,7 @@ bool Storey::modelling(CompoundBody& shapes) const
 		}
 	}
 
-	return false;
+	return shapes.bodyCount() > 0;
 }
 
 Storey& Storey::operator=(const Storey& src)
