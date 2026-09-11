@@ -2,3 +2,12 @@ __pycache__/
 *.pyc
 .DS_Store
 .git/
+
+# 上传的临时图谱 / 运行日志 / 备份（运行时或本地产生，无需入镜像）
+data/_up_*.json
+data/*.log
+data/*.bak
+data/_verify_*.py
+
+# 引擎镜像树：构建只需要源码，本地构建产物不入镜像
+engine/build/

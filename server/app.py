@@ -1,19 +1,26 @@
 # -*- coding: utf-8 -*-
-"""
+r"""
 工程数据发动机 · MVP 骨架
 本地单服务：Flask serve 前端静态页 + POST /api/command（意图 → 渲染数据）
 
 渲染数据来源（【实时】调用建模引擎）：
-  每次收到 build 请求，服务端实时调用 n1 的 OCCT 建模引擎（modelling）：
-      main.exe <图谱.json> <shapes.json>
-  main.exe 读空间图谱 → createWalls 生成真实墙/板几何 → 抽轴对齐 box 清单。
-  若 main.cpp 比 main.exe 新（或 exe 缺失），先用 MSVC 重新编译再运行——
-  即「需要什么编译就重新编译」：改了 C++ 源码，下一次请求会自动重编。
-  本服务【不再】做任何几何推导，只把建模产物原样 return 给前端体素渲染。
+  每次收到 build 请求，服务端实时调用 OCCT 建模引擎（n1/modelling），把空间图谱
+  编译成真实墙/板几何并导出 STL：
+      引擎 <图谱.json> <shapes.json>      # 同时写出同名 .stl
+  引擎是同一份源码（D:\sourcecodes\n1，经 server/engine/sync_from_n1.sh 镜像到
+  server/engine/），在两个平台各编一份：
+      Windows：voxelcli\main.exe（MSVC + modelling.lib + OCCT）。若 main.cpp 比
+               main.exe 新（或 exe 缺失），本服务先用 MSVC 重新编译再运行——
+               「需要什么编译就重新编译」。
+      Linux  ：bin/voxelcli（容器构建期由 Dockerfile 的 engine-builder 阶段用
+               g++/CMake 编出 ELF），直接运行，无编译步骤。
+  本服务【不做】任何几何推导，只把 STL 产物交给前端渲染。
+  接口契约：只返回 STL 文件名（外加 action/source/realtime 等控制字段），
+  【不回传】boxes 等中间格式。
 
-部署提示：modelling 是 Windows/MSVC/OCCT 原生库，本实时链路依赖本机（Windows）
-可直接 subprocess 拉起 main.exe；若部署到非 Windows 运行时，需把「生成 shapes」
-前置为构建期步骤，或把建模做成独立的 Windows 服务后由本服务调用。
+  两平台引擎都不存在时退化为「预生成产物」模式：取随包的
+  data/shapes_case6.json 里的 STL 文件名返回，此时【不消费】上传图谱
+  （传什么都一样）——仅兜底，正常部署（本机或容器）都有引擎，走不到该分支。
 """
 import glob
 import json
@@ -32,15 +39,24 @@ app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
 CLEAR_WORDS = ("清空", "清除", "清理", "移除全部")
 
 # ---- 建模引擎（n1 modelling 原生 exe）路径 ----
+IS_WINDOWS = (os.name == "nt")
 N1_DIR = r"D:\sourcecodes\n1"
 VOXELCLI_DIR = os.path.join(N1_DIR, "voxelcli")
 MAIN_CPP = os.path.join(VOXELCLI_DIR, "main.cpp")
 MAIN_EXE = os.path.join(VOXELCLI_DIR, "main.exe")
 BIN_DIR = os.path.join(N1_DIR, r"bin\x64\Release")
+# Linux：Docker 构建期编出的原生引擎（见 Dockerfile 的 engine-builder 阶段）
+ENGINE_BIN_LINUX = os.path.join(BASE_DIR, "bin", "voxelcli")
 # 默认图谱：四合院（一进四合院-东厢房开门问题.json，已落到 case_6.json）
 GRAPH_PATH = os.path.join(DATA_DIR, "case_6.json")
 SHAPES_PATH = os.path.join(DATA_DIR, "shapes_case6.json")
 RUN_LOG = os.path.join(DATA_DIR, "modelling_run.log")
+
+# 按平台选引擎：Windows 用 main.exe，Linux 用 bin/voxelcli。
+# 二者都不存在时 ENGINE_AVAILABLE=False，退化为「预生成产物」模式（不消费图谱，仅演示）。
+ENGINE_BIN = (MAIN_EXE if os.path.exists(MAIN_EXE) else None) if IS_WINDOWS \
+             else (ENGINE_BIN_LINUX if os.path.exists(ENGINE_BIN_LINUX) else None)
+ENGINE_AVAILABLE = ENGINE_BIN is not None
 
 
 def _log_run(entry: dict) -> None:
@@ -128,7 +144,22 @@ def _compile_main():
 
 
 def _run_modelling(graph_path, out_path):
-    """实时调用建模引擎生成 shapes JSON；必要时先重编译。返回是否为本次新编译。"""
+    """实时调用建模引擎生成 shapes JSON。
+
+    返回：本次是否发生了重新编译（Linux 侧编译在容器构建期完成，恒为 False）。
+    """
+    # ---- Linux（容器）：引擎是构建期编好的 ELF，直接调用 --------------------
+    # 无编译步骤、无 DLL 同目录依赖，故不走 _needs_rebuild()/_compile_main()/_msvc_env()。
+    if not IS_WINDOWS:
+        r = subprocess.run([ENGINE_BIN, graph_path, out_path],
+                           capture_output=True, timeout=120)
+        if r.returncode != 0:
+            out = (r.stdout or b"").decode("utf-8", "replace") + \
+                  (r.stderr or b"").decode("utf-8", "replace")
+            raise RuntimeError("建模引擎运行失败 (rc=%d):\n%s" % (r.returncode, out[-2000:]))
+        return False
+
+    # ---- Windows（本机）：main.exe 缺失或源码更新时先重编，再运行 ----------
     recompiled = False
     if _needs_rebuild():
         try:
@@ -187,21 +218,39 @@ def _save_upload_graph(graph) -> str:
 
 
 def _build_from_graph(graph_path, source):
-    """实时调 modelling 引擎，按给定图谱生成并返回 box 清单。"""
+    """按图谱实时生成 STL；本机/容器有建模引擎则现场跑，否则回退随包预生成产物的 STL。
+
+    接口契约：只返回 STL 文件名 + action/source/realtime 等控制字段，
+    【不回传】boxes 等中间格式（shapes json 仍落盘 data/ 供服务端自己用）。
+    """
     t0 = time.time()
+
+    # 无任何平台引擎时（纯前端演示环境）：返回随包预生成产物的 STL 文件名。
+    # 注意：此分支【不消费】graph_path，传任何图谱结果都一样——仅兜底，正常部署不会走到。
+    if not ENGINE_AVAILABLE:
+        try:
+            shapes = _load_shapes()
+        except Exception as e:  # noqa: BLE001
+            return jsonify({"action": "clear", "source": "error",
+                            "error": "预生成产物缺失：" + str(e)[:400]})
+        _log_run({"ts": t0, "event": "build", "source": source, "realtime": False,
+                  "stl": shapes.get("stl"),
+                  "ms": round((time.time() - t0) * 1000)})
+        return jsonify({"action": "build", "source": source, "realtime": False,
+                        "recompiled": False, "stl": shapes.get("stl")})
+
     try:
         recompiled = _run_modelling(graph_path, SHAPES_PATH)
         shapes = _load_shapes()
         elapsed = round((time.time() - t0) * 1000)
         _log_run({"ts": t0, "event": "build", "source": source, "recompiled": recompiled,
-                  "boxes": len(shapes.get("boxes", [])),
                   "walls": shapes.get("stats", {}).get("walls"),
                   "slabs": shapes.get("stats", {}).get("slabs"),
                   "doors": shapes.get("stats", {}).get("doors"),
+                  "stl": shapes.get("stl"),
                   "ms": elapsed})
-        # 注意：shapes 文件自带 "source":"case_6"，必须把自己的字段放在 **shapes 之后以覆盖它
-        return jsonify({**shapes, "action": "build", "source": source,
-                        "realtime": True, "recompiled": recompiled})
+        return jsonify({"action": "build", "source": source, "realtime": True,
+                        "recompiled": recompiled, "stl": shapes.get("stl")})
     except Exception as e:  # noqa: BLE001 —— 异常时清空兜底，保证前端不卡死
         return jsonify({"action": "clear", "source": "error", "error": str(e)[:500]})
 

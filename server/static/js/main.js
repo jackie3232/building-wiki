@@ -234,8 +234,7 @@ async function renderResponse(data, label) {
       currentSTL = await loadSTL(data.stl);
       stlRoot.add(currentSTL);
       fitCameraToObject(currentSTL);
-      const n = data.boxes ? data.boxes.length : 0;
-      setStatus(`已生成真实几何${n ? " · " + n + " 个构件" : ""}${label ? " · " + label : ""}`);
+      setStatus(`已生成真实几何${label ? " · " + label : ""}`);
     } catch (e) {
       console.warn("STL 加载失败：", e);
       setStatus("真实几何加载失败");
