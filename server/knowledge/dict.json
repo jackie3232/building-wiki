@@ -1,0 +1,51 @@
+{
+  "meta": {
+    "scope": "siheyuan",
+    "version": "1.0",
+    "note": "LLM 唯一合法词表；类型图谱 / rules 只能引用下列 key。MVP 范围：北京四合院。",
+    "categories": ["空间角色", "构件", "方位", "尺度模数", "关系"]
+  },
+  "空间角色": {
+    "zhengfang":   {"label": "正房",   "desc": "坐北朝南正中的主屋，等级最高、面阔最大"},
+    "xiangfang":   {"label": "厢房",   "desc": "院落东西两侧对称布置的次屋"},
+    "daozuofang":  {"label": "倒座房", "desc": "院落最南、朝北，与正房相对"},
+    "houzhaofang": {"label": "后罩房", "desc": "正房之后、院落最北的一排屋"},
+    "erfang":      {"label": "耳房",   "desc": "主屋两侧接出的小屋"},
+    "tingyuan":    {"label": "庭院",   "desc": "由房屋围合出的露天院落"},
+    "chuihuamen":  {"label": "垂花门", "desc": "分隔外院与内院的内门，装饰性"},
+    "youlang":     {"label": "游廊",   "desc": "连接各屋的带顶走廊"},
+    "yingbi":      {"label": "影壁",   "desc": "入口处遮挡视线的短墙"}
+  },
+  "构件": {
+    "wuoding": {"label": "屋顶", "desc": "屋盖"},
+    "qiangti": {"label": "墙体", "desc": "围护与分隔的墙"},
+    "taiji":   {"label": "台基", "desc": "承托房屋的台座"},
+    "zhu":     {"label": "柱",   "desc": "竖向承重构件"},
+    "liang":   {"label": "梁",   "desc": "横向承重构件"},
+    "men":     {"label": "门",   "desc": "出入口"},
+    "chuang":  {"label": "窗",   "desc": "采光通风口"}
+  },
+  "方位": {
+    "dong":            {"label": "东", "desc": "东"},
+    "nan":            {"label": "南", "desc": "南"},
+    "xi":             {"label": "西", "desc": "西"},
+    "bei":            {"label": "北", "desc": "北"},
+    "zuobeichaonan": {"label": "坐北朝南", "desc": "背北面南，四合院标准朝向"}
+  },
+  "尺度模数": {
+    "jian":     {"label": "间",   "desc": "基本开间单位"},
+    "miankuo":  {"label": "面阔", "desc": "建筑正面开间总宽"},
+    "jinshen":  {"label": "进深", "desc": "建筑进深方向尺寸"},
+    "mingjian": {"label": "明间", "desc": "正中开间，最宽"},
+    "cijian":   {"label": "次间", "desc": "明间两侧开间"},
+    "shaojian": {"label": "梢间", "desc": "最外侧开间"},
+    "jin":      {"label": "进",   "desc": "院落进数；三进 = 沿中轴南北排 3 个院落，变体开关"}
+  },
+  "关系": {
+    "weihe":    {"label": "围合", "desc": "房屋包围庭院"},
+    "zhongzhou":{"label": "中轴", "desc": "南北向对称中心线"},
+    "duichen":  {"label": "对称", "desc": "中轴两侧镜像"},
+    "juzhong":  {"label": "居中", "desc": "主体位于中轴中央"},
+    "xulie":    {"label": "序列", "desc": "进沿中轴南北次序排布（一进→二进→三进）"}
+  }
+}

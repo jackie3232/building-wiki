@@ -1,0 +1,92 @@
+{
+  "meta": {
+    "type": "siheyuan",
+    "desc": "北京四合院类型图谱（WHAT·知识）：定义构成角色、组合拓扑、尺度模数参数槽。零坐标、无绝对米数。实例图谱继承本结构、受 siheyuan.rules 约束、用 dict.json 的 key 作词表。",
+    "dictRef": "dict.json",
+    "rulesRef": "siheyuan.rules",
+    "zeroCoord": true
+  },
+  "site": {
+    "type": "siheyuan",
+    "desc": "一座四合院实例的顶层",
+    "children": {
+      "courtyards": {
+        "relation": "xulie",
+        "ref": "xulie",
+        "countParam": "jin",
+        "refParam": "jin",
+        "desc": "沿中轴南北序列排布的 jin 个院落",
+        "childType": "courtyard"
+      }
+    }
+  },
+  "courtyard": {
+    "refRole": "tingyuan",
+    "desc": "基本空间单元：由房屋围合出的露天院落",
+    "enclosure": {
+      "relation": "weihe",
+      "ref": "weihe",
+      "sides": {
+        "north": { "role": "zhengfang", "ref": "zhengfang", "desc": "北面主体" },
+        "east":  { "role": "xiangfang", "ref": "xiangfang", "side": "dong", "desc": "东厢" },
+        "west":  { "role": "xiangfang", "ref": "xiangfang", "side": "xi", "desc": "西厢" },
+        "south": { "role": "daozuofang", "ref": "daozuofang", "desc": "南面倒座" }
+      }
+    },
+    "center": { "role": "tingyuan", "ref": "tingyuan", "desc": "院落中心（露天）" },
+    "gate": {
+      "role": "chuihuamen",
+      "ref": "chuihuamen",
+      "cond": "jin>1",
+      "desc": "仅当进数>1，分隔相邻院落"
+    },
+    "peripheral": [
+      { "role": "youlang", "ref": "youlang", "desc": "游廊连接各屋（可选）" },
+      { "role": "yingbi", "ref": "yingbi", "desc": "入口影壁（可选）" },
+      { "role": "erfang", "ref": "erfang", "attachTo": "zhengfang", "cond": "optional", "desc": "耳房接正房两侧（可选）" },
+      { "role": "houzhaofang", "ref": "houzhaofang", "cond": "jin>=3", "desc": "后罩房位于正房之后（多进时出现）" }
+    ]
+  },
+  "roles": {
+    "zhengfang": {
+      "ref": "zhengfang", "category": "空间角色",
+      "modular": {
+        "miankuo": { "ref": "miankuo", "desc": "面阔(开间总数)" },
+        "jinshen": { "ref": "jinshen", "desc": "进深" },
+        "jianComposition": ["mingjian", "cijian", "cijian", "shaojian", "shaojian"]
+      },
+      "structs": ["wuoding", "qiangti", "taiji", "zhu", "liang", "men", "chuang"]
+    },
+    "xiangfang": {
+      "ref": "xiangfang", "category": "空间角色",
+      "modular": {
+        "miankuo": { "ref": "miankuo" },
+        "jinshen": { "ref": "jinshen" },
+        "jianComposition": ["mingjian", "cijian", "cijian"]
+      },
+      "structs": ["wuoding", "qiangti", "taiji", "zhu", "liang", "men", "chuang"]
+    },
+    "daozuofang": {
+      "ref": "daozuofang", "category": "空间角色",
+      "modular": {
+        "miankuo": { "ref": "miankuo" },
+        "jinshen": { "ref": "jinshen" }
+      },
+      "structs": ["wuoding", "qiangti", "taiji", "zhu", "liang", "men", "chuang"]
+    },
+    "tingyuan": { "ref": "tingyuan", "category": "空间角色", "open": true, "desc": "露天院落，无屋盖" },
+    "chuihuamen": { "ref": "chuihuamen", "category": "空间角色", "structs": ["men", "qiangti", "wuoding"] },
+    "erfang": { "ref": "erfang", "category": "空间角色", "structs": ["wuoding", "qiangti", "taiji", "zhu", "liang"] },
+    "houzhaofang": { "ref": "houzhaofang", "category": "空间角色", "structs": ["wuoding", "qiangti", "taiji", "zhu", "liang", "men", "chuang"] },
+    "youlang": { "ref": "youlang", "category": "空间角色", "structs": ["wuoding", "qiangti", "zhu", "liang"] },
+    "yingbi": { "ref": "yingbi", "category": "空间角色", "structs": ["qiangti"] }
+  },
+  "modularParams": {
+    "jin":      { "ref": "jin", "desc": "院落进数（变体开关）：1单进 / 2两进 / 3三进", "range": [1, 3] },
+    "miankuo":  { "ref": "miankuo", "desc": "面阔开间总数" },
+    "jinshen":  { "ref": "jinshen", "desc": "进深" },
+    "mingjian": { "ref": "mingjian", "desc": "明间(正中,最宽)" },
+    "cijian":   { "ref": "cijian", "desc": "次间" },
+    "shaojian": { "ref": "shaojian", "desc": "梢间" }
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "meta": {
+    "type": "siheyuan",
+    "desc": "标准三进四合院实例种子（数据中心）。继承 siheyuan.type.json 结构、受 siheyuan.rules 约束、用词表 dict.json。零坐标，尺寸仅以「间」计；实际米数由几何计算引擎据模数换算。",
+    "dictRef": "dict.json",
+    "typeRef": "siheyuan.type.json",
+    "rulesRef": "siheyuan.rules",
+    "zeroCoord": true,
+    "deviation": "标准型，未偏离",
+    "note": "规制数值待文化建设校准；本种子用于端到端链路首测"
+  },
+  "site": {
+    "type": "siheyuan",
+    "jin": 3,
+    "courtyards": [
+      {
+        "id": "cy1",
+        "name": "外院",
+        "sequence": 1,
+        "enclosure": {
+          "relation": "weihe",
+          "south": { "role": "daozuofang", "miankuo": 5, "jinshen": 2, "faces": "bei" },
+          "northGate": { "role": "chuihuamen" }
+        },
+        "center": { "role": "tingyuan" }
+      },
+      {
+        "id": "cy2",
+        "name": "内院",
+        "sequence": 2,
+        "enclosure": {
+          "relation": "weihe",
+          "north": {
+            "role": "zhengfang",
+            "miankuo": 5,
+            "jinshen": 3,
+            "jianComposition": ["mingjian", "cijian", "cijian", "shaojian", "shaojian"],
+            "faces": "zuobeichaonan"
+          },
+          "east": { "role": "xiangfang", "miankuo": 3, "jinshen": 2 },
+          "west": { "role": "xiangfang", "miankuo": 3, "jinshen": 2 },
+          "southGate": { "role": "chuihuamen" }
+        },
+        "center": { "role": "tingyuan" },
+        "peripheral": [
+          { "role": "youlang" },
+          { "role": "yingbi" }
+        ]
+      },
+      {
+        "id": "cy3",
+        "name": "正院",
+        "sequence": 3,
+        "enclosure": {
+          "relation": "weihe",
+          "north": { "role": "houzhaofang", "miankuo": 5, "jinshen": 2 },
+          "east": { "role": "xiangfang", "miankuo": 3, "jinshen": 2 },
+          "west": { "role": "xiangfang", "miankuo": 3, "jinshen": 2 }
+        },
+        "center": { "role": "tingyuan" }
+      }
+    ]
+  }
+}
