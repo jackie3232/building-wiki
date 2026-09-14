@@ -35,6 +35,9 @@ MODUS = 3.3
 WING_HEIGHT = 3.3
 PERIPH_HEIGHT = 2.5          # 游廊/影壁等围合构件占位高度（MVP 占位）
 
+# 体素边长（米）。越小越细、box 越多；越大越省、体素感越弱。MVP 提速版适中取值。
+VOXEL_SIZE = 0.6
+
 # role key -> 兜底中文名 / 颜色（⑤ 造型层使用，纯内置，不依赖外部词表）
 ROLE_LABELS = {
     "zhengfang": "正房", "xiangfang": "厢房", "daozuofang": "倒座房",
@@ -204,14 +207,18 @@ def compute_geometry(instance):
             geometry.append(_geo_wing(0, w, nd, zc + d / 2 - nd / 2, p["north"]))
         if p["south"]:
             geometry.append(_geo_wing(0, w, sd, zc - d / 2 + sd / 2, p["south"]))
+        # 东西厢：长边沿 Z（面阔），厚沿 X（进深）。
+        # Z 向填充「正房南檐 -> 倒座北檐」空隙，中心 = zc + (sd-nd)/2，
+        # 使其与正房只在角上相接、体积不重叠（修此前 厢房/正房 空间重叠）。
+        ew_z = zc + (sd - nd) / 2
         if p["east"]:
             ed = _dim(p["east"], "jinshen", 2) * modus
             el = d - nd - sd
-            geometry.append(_geo_eastwest(+(w / 2 - ed / 2), el, ed, zc, p["east"]))
+            geometry.append(_geo_eastwest(+(w / 2 - ed / 2), el, ed, ew_z, p["east"]))
         if p["west"]:
             ed = _dim(p["west"], "jinshen", 2) * modus
             el = d - nd - sd
-            geometry.append(_geo_eastwest(-(w / 2 - ed / 2), el, ed, zc, p["west"]))
+            geometry.append(_geo_eastwest(-(w / 2 - ed / 2), el, ed, ew_z, p["west"]))
 
         # 垂花门（院落分隔 gate）：northGate 表示与前一院落的边界，每边界一个
         enc = p["c"].get("enclosure", {})
@@ -274,24 +281,50 @@ def _geo_yingbi(w, sd, zc, d):
 
 
 # ---------------- ⑤ 几何造型引擎：构件 -> 体素 BOX 清单 ----------------
-def geometry_to_boxes(geometry):
-    """⑤ 几何造型引擎：构件 -> 体素 BOX 清单。
+def _voxelize_component(g, vox):
+    """构件(连续几何) -> 体素 BOX 网格（构件 : box = 图像 : 像素）。
 
-    选定 BOX 作为 MVP 表现基元（1 构件 = 1 box 占位），并补 label/color（内置兜底）。
-    未来切 B-rep / 多体素化只改此处，④ 不动。
+    沿 X/Y/Z 把构件实心切成边长为 vox 的体素网格，每体素是一个小 box；
+    label/color 由所属构件继承（点选任意体素都能识别其构件）。
+    """
+    role = g.get("role")
+    c = g.get("center", {})
+    s = g.get("size", {})
+    W, H, D = s.get("w", 0), s.get("h", 0), s.get("d", 0)
+    if W <= 0 or H <= 0 or D <= 0:
+        return []
+    nx = max(1, int(round(W / vox)))
+    ny = max(1, int(round(H / vox)))
+    nz = max(1, int(round(D / vox)))
+    sx, sy, sz = W / nx, H / ny, D / nz          # 实际体素尺寸（精确贴合构件边界）
+    x0 = c.get("x", 0) - W / 2
+    y0 = c.get("y", 0) - H / 2
+    z0 = c.get("z", 0) - D / 2
+    label = ROLE_LABELS.get(role, role)
+    color = ROLE_COLORS.get(role, 0x999999)
+    out = []
+    for i in range(nx):
+        for j in range(ny):
+            for k in range(nz):
+                out.append({
+                    "x": round(x0 + (i + 0.5) * sx, 3),
+                    "y": round(y0 + (j + 0.5) * sy, 3),
+                    "z": round(z0 + (k + 0.5) * sz, 3),
+                    "w": round(sx, 3), "h": round(sy, 3), "d": round(sz, 3),
+                    "role": role, "label": label, "color": color,
+                })
+    return out
+
+
+def geometry_to_boxes(geometry, vox=VOXEL_SIZE):
+    """⑤ 几何造型引擎：构件 -> 体素 BOX 清单（真实多体素化，非 1 构件=1 box 占位）。
+
+    选定 BOX 作为 MVP 表现基元，把每个构件按 VOXEL_SIZE 体素化成 box 网格。
+    label/color 由所属构件继承。未来切 B-rep 只改此处，④ 不动。
     """
     boxes = []
     for g in geometry:
-        role = g.get("role")
-        c = g.get("center", {})
-        s = g.get("size", {})
-        boxes.append({
-            "x": c.get("x", 0), "y": c.get("y", 0), "z": c.get("z", 0),
-            "w": s.get("w", 0), "h": s.get("h", 0), "d": s.get("d", 0),
-            "role": role,
-            "label": ROLE_LABELS.get(role, role),
-            "color": ROLE_COLORS.get(role, 0x999999),
-        })
+        boxes.extend(_voxelize_component(g, vox))
     return boxes
 
 

@@ -44,27 +44,82 @@ const boxRoot = new THREE.Group();
 scene.add(boxRoot);
 
 function clearBoxes() {
-  while (boxRoot.children.length) {
-    const o = boxRoot.children[0];
-    boxRoot.remove(o);
-    if (o.geometry) o.geometry.dispose();
-    if (o.material) o.material.dispose();
+  if (voxMesh) {
+    boxRoot.remove(voxMesh);
+    voxMesh.geometry.dispose();
+    voxMesh.material.dispose();
+    voxMesh = null;
+  }
+  if (voxEdges) {
+    boxRoot.remove(voxEdges);
+    voxEdges.geometry.dispose();
+    voxEdges.material.dispose();
+    voxEdges = null;
   }
 }
 
+let voxMesh = null;
+let voxEdges = null;
+
 function addBoxes(boxes) {
   clearBoxes();
-  for (const b of boxes) {
-    const geo = new THREE.BoxGeometry(b.w, b.h, b.d);
-    const col = new THREE.Color(b.color !== undefined ? b.color : 0x999999);
-    const mat = new THREE.MeshStandardMaterial({ color: col, roughness: 0.72, metalness: 0.05 });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(b.x, b.y, b.z);
-    mesh.userData = { role: b.role, label: b.label };
-    boxRoot.add(mesh);
+  if (!boxes.length) return 0;
+  // 体素数量可达上万 -> 用 InstancedMesh 单次 draw call 渲染，避免逐 block 卡死
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const mat = new THREE.MeshStandardMaterial({ roughness: 0.72, metalness: 0.05 });
+  voxMesh = new THREE.InstancedMesh(geo, mat, boxes.length);
+  const m = new THREE.Matrix4();
+  const p = new THREE.Vector3();
+  const q = new THREE.Quaternion();
+  const s = new THREE.Vector3();
+  const col = new THREE.Color();
+  const FILL = 0.92;   // 实心块微缩留缝，配合边线呈现体素网格感
+  for (let i = 0; i < boxes.length; i++) {
+    const b = boxes[i];
+    p.set(b.x, b.y, b.z);
+    s.set(b.w * FILL, b.h * FILL, b.d * FILL);
+    m.compose(p, q, s);
+    voxMesh.setMatrixAt(i, m);
+    col.set(b.color !== undefined ? b.color : 0x999999);
+    voxMesh.setColorAt(i, col);
   }
+  voxMesh.instanceMatrix.needsUpdate = true;
+  if (voxMesh.instanceColor) voxMesh.instanceColor.needsUpdate = true;
+  voxMesh.userData.boxes = boxes;   // 供点选反查构件名
+  boxRoot.add(voxMesh);
+  addBoxEdges(boxes);                // 叠加每个体素的边框线，凸显体素结构
   fitCameraToObject(boxRoot);
   return boxes.length;
+}
+
+// 每个体素描一圈边框线（合并为单条 LineSegments，颜色取所属构件色加深），呈现体素划分
+function addBoxEdges(boxes) {
+  const tmpl = [
+    [-0.5,-0.5,-0.5],[0.5,-0.5,-0.5], [0.5,-0.5,-0.5],[0.5,0.5,-0.5],
+    [0.5,0.5,-0.5],[-0.5,0.5,-0.5], [-0.5,0.5,-0.5],[-0.5,-0.5,-0.5],
+    [-0.5,-0.5,0.5],[0.5,-0.5,0.5], [0.5,-0.5,0.5],[0.5,0.5,0.5],
+    [0.5,0.5,0.5],[-0.5,0.5,0.5], [-0.5,0.5,0.5],[-0.5,-0.5,0.5],
+    [-0.5,-0.5,-0.5],[-0.5,-0.5,0.5], [0.5,-0.5,-0.5],[0.5,-0.5,0.5],
+    [0.5,0.5,-0.5],[0.5,0.5,0.5], [-0.5,0.5,-0.5],[-0.5,0.5,0.5],
+  ];
+  const verts = new Float32Array(boxes.length * tmpl.length * 3);
+  const cols = new Float32Array(boxes.length * tmpl.length * 3);
+  const c = new THREE.Color();
+  let o = 0;
+  for (const b of boxes) {
+    c.set(b.color !== undefined ? b.color : 0x999999).multiplyScalar(0.5); // 边线加深以凸显
+    for (const t of tmpl) {
+      verts[o] = b.x + t[0] * b.w; verts[o + 1] = b.y + t[1] * b.h; verts[o + 2] = b.z + t[2] * b.d;
+      cols[o] = c.r; cols[o + 1] = c.g; cols[o + 2] = c.b;
+      o += 3;
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(verts, 3));
+  g.setAttribute("color", new THREE.BufferAttribute(cols, 3));
+  const m = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.6 });
+  voxEdges = new THREE.LineSegments(g, m);
+  boxRoot.add(voxEdges);
 }
 
 function fitCameraToObject(obj) {
@@ -102,13 +157,15 @@ renderer.domElement.addEventListener("pointerup", (e) => {
   const moved = Math.hypot(e.clientX - downXY[0], e.clientY - downXY[1]);
   downXY = null;
   if (moved > 5) return; // 拖拽不算点选
+  if (!voxMesh) return;
   pointer.x = (e.clientX / innerWidth) * 2 - 1;
   pointer.y = -(e.clientY / innerHeight) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
-  const hits = raycaster.intersectObjects(boxRoot.children, false);
+  const hits = raycaster.intersectObject(voxMesh, false);
   if (hits.length) {
-    const u = hits[0].object.userData;
-    setStatus(`选中：${u.label || u.role || "未知"}`, false);
+    const id = hits[0].instanceId;
+    const b = voxMesh.userData.boxes[id];
+    setStatus(`选中：${b.label || b.role || "未知"}`, false);
   }
 });
 
@@ -134,7 +191,7 @@ async function renderResponse(data) {
   }
   if (Array.isArray(data.boxes)) {
     const n = addBoxes(data.boxes);
-    setStatus(`已生成体素模型 · ${n} 个构件`);
+    setStatus(`已生成体素模型 · ${n} 个体素`);
     return;
   }
   setStatus("未返回几何数据");
