@@ -1,15 +1,13 @@
 {
   "meta": {
     "type": "siheyuan",
-    "desc": "标准三进四合院实例种子（数据中心）。继承 siheyuan.type.json 结构、受 siheyuan.rules 约束、用词表 dict.json。零坐标，尺寸仅以「间」计；实际米数由几何计算引擎据模数换算。",
-    "dictRef": "dict.json",
-    "typeRef": "siheyuan.type.json",
-    "rulesRef": "siheyuan.rules",
+    "desc": "标准三进四合院实例（工程文件·自包含）。不依赖外部知识中心：实例数据见 data，生成所依据的规则快照见 appliedRules。",
+    "generatedAt": "2026-09-14",
     "zeroCoord": true,
     "deviation": "标准型，未偏离",
-    "note": "规制数值待文化建设校准；本种子用于端到端链路首测"
+    "note": "规制数值为占位标准型，待文化建设校准；本文件用于端到端链路首测"
   },
-  "site": {
+  "data": {
     "type": "siheyuan",
     "jin": 3,
     "courtyards": [
@@ -60,5 +58,48 @@
         "center": { "role": "tingyuan" }
       }
     ]
+  },
+  "appliedRules": {
+    "meta": {
+      "type": "siheyuan",
+      "source": "siheyuan.rules",
+      "snapshotNote": "生成时从规则库拷入的快照；后续规则库变更不影响本实例。真源仍为外部规则库。"
+    },
+    "paramRanges": {
+      "jin": { "range": [1, 3], "desc": "院落进数允许范围（扩展四进只需放宽此处）" }
+    },
+    "orientation": [
+      { "role": "zhengfang", "must": "zuobeichaonan", "desc": "正房坐北朝南" },
+      { "role": "daozuofang", "faces": "bei", "desc": "倒座房朝北，与正房相对" },
+      { "role": "xiangfang", "faces": ["dong", "xi"], "desc": "厢房东/西向，山墙朝外" }
+    ],
+    "position": [
+      { "role": "zhengfang", "at": "zhongzhou_north", "constraint": "juzhong", "desc": "正房居中、位于中轴北端" },
+      { "role": "xiangfang", "at": ["dong", "xi"], "constraint": "duichen", "desc": "厢房东西对称" },
+      { "role": "daozuofang", "at": "nan_end", "desc": "倒座房位于院落最南" },
+      { "role": "chuihuamen", "between": "courtyards", "desc": "垂花门分隔相邻院落" },
+      { "role": "houzhaofang", "at": "north_of_zhengfang", "desc": "后罩房位于正房之后" }
+    ],
+    "sequence": {
+      "desc": "进沿中轴南北序列；进数↑院落往南加",
+      "byJin": {
+        "1": ["正院(正房北 + 厢房东西 + 倒座房南 + 庭院)"],
+        "2": ["外院", "chuihuamen", "内院"],
+        "3": ["外院", "chuihuamen", "内院", "正院(含后罩房)"]
+      }
+    },
+    "norms": {
+      "modus": 3.3,
+      "zhengfang": {
+        "miankuo": 5,
+        "ratio": { "mingjian": 10, "cijian": 8, "shaojian": 6 },
+        "jinshen": 3,
+        "desc": "正房面阔5间(1明+2次+2梢)；明间最宽，次间≈0.8明间，梢间递减"
+      },
+      "xiangfang": { "miankuo": 3, "jinshen": 2, "desc": "厢房面阔3间" },
+      "daozuofang": { "miankuo": 5, "jinshen": 2, "desc": "倒座房面阔约同正房" },
+      "houzhaofang": { "miankuo": 5, "desc": "后罩房面阔约同正房" },
+      "note": "⚠️ 占位标准型，待文化建设校准"
+    }
   }
 }

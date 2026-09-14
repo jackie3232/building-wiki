@@ -6,6 +6,9 @@
     "typeRef": "siheyuan.type.json",
     "note": "⚠️ 规制数值为传统标准型占位参考，待用户（文化建设主场）校准真实古建数字"
   },
+  "paramRanges": {
+    "jin": { "ref": "jin", "range": [1, 4], "desc": "院落进数允许范围（已放宽至四进）" }
+  },
   "orientation": [
     { "role": "zhengfang", "must": "zuobeichaonan", "ref": "zuobeichaonan", "desc": "正房坐北朝南" },
     { "role": "daozuofang", "faces": "bei", "ref": "bei", "desc": "倒座房朝北，与正房相对" },
@@ -15,14 +18,8 @@
     { "role": "zhengfang", "at": "zhongzhou_north", "constraint": "juzhong", "ref": ["zhongzhou", "juzhong"], "desc": "正房居中、位于中轴北端" },
     { "role": "xiangfang", "at": ["dong", "xi"], "constraint": "duichen", "ref": ["dong", "xi", "duichen"], "desc": "厢房东西对称" },
     { "role": "daozuofang", "at": "nan_end", "desc": "倒座房位于院落最南" },
-    { "role": "chuihuamen", "between": "courtyards", "cond": "jin>1", "ref": "chuihuamen", "desc": "垂花门分隔相邻院落（进数>1）" },
-    { "role": "houzhaofang", "at": "north_of_zhengfang", "cond": "jin>=3", "ref": "houzhaofang", "desc": "后罩房位于正房之后（多进）" }
-  ],
-  "relation": [
-    { "type": "weihe", "ref": "weihe", "desc": "房屋围合庭院" },
-    { "type": "duichen", "ref": "duichen", "desc": "中轴两侧镜像" },
-    { "type": "xulie", "ref": "xulie", "desc": "进沿中轴南北序列" },
-    { "type": "juzhong", "ref": "juzhong", "desc": "主体居中" }
+    { "role": "chuihuamen", "between": "courtyards", "ref": "chuihuamen", "desc": "垂花门分隔相邻院落" },
+    { "role": "houzhaofang", "at": "north_of_zhengfang", "ref": "houzhaofang", "desc": "后罩房位于正房之后" }
   ],
   "sequence": {
     "ref": "xulie",
@@ -34,14 +31,14 @@
     }
   },
   "norms": {
+    "modus": 3.3,
     "zhengfang": {
       "miankuo": 5,
-      "jianComposition": ["mingjian", "cijian", "cijian", "shaojian", "shaojian"],
       "ratio": { "mingjian": 10, "cijian": 8, "shaojian": 6 },
       "jinshen": 3,
       "desc": "正房面阔5间(1明+2次+2梢)；明间最宽，次间≈0.8明间，梢间递减"
     },
-    "xiangfang": { "miankuo": 3, "jianComposition": ["mingjian", "cijian", "cijian"], "jinshen": 2, "desc": "厢房面阔3间" },
+    "xiangfang": { "miankuo": 3, "jinshen": 2, "desc": "厢房面阔3间" },
     "daozuofang": { "miankuo": 5, "jinshen": 2, "desc": "倒座房面阔约同正房" },
     "houzhaofang": { "miankuo": 5, "desc": "后罩房面阔约同正房" },
     "note": "⚠️ 占位标准型，待文化建设校准"

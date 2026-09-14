@@ -28,8 +28,8 @@
       "ref": "weihe",
       "sides": {
         "north": { "role": "zhengfang", "ref": "zhengfang", "desc": "北面主体" },
-        "east":  { "role": "xiangfang", "ref": "xiangfang", "side": "dong", "desc": "东厢" },
-        "west":  { "role": "xiangfang", "ref": "xiangfang", "side": "xi", "desc": "西厢" },
+        "east":  { "role": "xiangfang", "ref": "xiangfang", "desc": "东厢" },
+        "west":  { "role": "xiangfang", "ref": "xiangfang", "desc": "西厢" },
         "south": { "role": "daozuofang", "ref": "daozuofang", "desc": "南面倒座" }
       }
     },
@@ -82,7 +82,7 @@
     "yingbi": { "ref": "yingbi", "category": "空间角色", "structs": ["qiangti"] }
   },
   "modularParams": {
-    "jin":      { "ref": "jin", "desc": "院落进数（变体开关）：1单进 / 2两进 / 3三进", "range": [1, 3] },
+    "jin":      { "ref": "jin", "desc": "院落进数（变体开关）：1单进 / 2两进 / 3三进" },
     "miankuo":  { "ref": "miankuo", "desc": "面阔开间总数" },
     "jinshen":  { "ref": "jinshen", "desc": "进深" },
     "mingjian": { "ref": "mingjian", "desc": "明间(正中,最宽)" },
