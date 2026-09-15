@@ -30,7 +30,8 @@
         "north": { "role": "zhengfang", "ref": "zhengfang", "desc": "北面主体" },
         "east":  { "role": "xiangfang", "ref": "xiangfang", "desc": "东厢" },
         "west":  { "role": "xiangfang", "ref": "xiangfang", "desc": "西厢" },
-        "south": { "role": "daozuofang", "ref": "daozuofang", "desc": "南面倒座" }
+        "south": { "role": "daozuofang", "ref": "daozuofang", "desc": "南面倒座" },
+        "perimeter": { "role": "yuanqiang", "ref": "yuanqiang", "desc": "围合院落的外围墙（四面闭合，南面留院门缺口）" }
       }
     },
     "center": { "role": "tingyuan", "ref": "tingyuan", "desc": "院落中心（露天）" },
@@ -79,7 +80,8 @@
     "erfang": { "ref": "erfang", "category": "空间角色", "structs": ["wuoding", "qiangti", "taiji", "zhu", "liang"] },
     "houzhaofang": { "ref": "houzhaofang", "category": "空间角色", "structs": ["wuoding", "qiangti", "taiji", "zhu", "liang", "men", "chuang"] },
     "youlang": { "ref": "youlang", "category": "空间角色", "structs": ["wuoding", "qiangti", "zhu", "liang"] },
-    "yingbi": { "ref": "yingbi", "category": "空间角色", "structs": ["qiangti"] }
+    "yingbi": { "ref": "yingbi", "category": "空间角色", "structs": ["qiangti"] },
+    "yuanqiang": { "ref": "yuanqiang", "category": "空间角色", "structs": ["qiangti"], "desc": "围合院落的外围墙" }
   },
   "modularParams": {
     "jin":      { "ref": "jin", "desc": "院落进数（变体开关）：1单进 / 2两进 / 3三进" },

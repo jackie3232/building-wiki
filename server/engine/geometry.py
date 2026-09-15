@@ -34,6 +34,7 @@ DATA_DIR = os.path.join(BASE, "data", "instances")
 MODUS = 3.3
 WING_HEIGHT = 3.3
 PERIPH_HEIGHT = 2.5          # 游廊/影壁等围合构件占位高度（MVP 占位）
+YUANQIANG_HEIGHT = 2.2       # 外围院墙占位高度（MVP 占位，低于房屋）
 
 # 体素边长（米）。越小越细、box 越多；越大越省、体素感越弱。MVP 提速版适中取值。
 VOXEL_SIZE = 0.6
@@ -42,12 +43,12 @@ VOXEL_SIZE = 0.6
 ROLE_LABELS = {
     "zhengfang": "正房", "xiangfang": "厢房", "daozuofang": "倒座房",
     "houzhaofang": "后罩房", "chuihuamen": "垂花门", "erfang": "耳房",
-    "youlang": "游廊", "yingbi": "影壁", "tingyuan": "庭院",
+    "youlang": "游廊", "yingbi": "影壁", "tingyuan": "庭院", "yuanqiang": "院墙",
 }
 ROLE_COLORS = {
     "zhengfang": 0xC0504D, "xiangfang": 0xE0A030, "daozuofang": 0x4F81BD,
     "houzhaofang": 0x9B59B6, "chuihuamen": 0x82A33A, "erfang": 0x9B59B6,
-    "youlang": 0x808080, "yingbi": 0xB0A040, "tingyuan": 0xCFCFCF,
+    "youlang": 0x808080, "yingbi": 0xB0A040, "tingyuan": 0xCFCFCF, "yuanqiang": 0x7F7F7F,
 }
 
 _CN_NUM = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
@@ -76,7 +77,7 @@ def _room(role, norms):
 
 
 def _cy(seq, name, north=None, south=None, east=None, west=None,
-        northGate=None, southGate=None, peripheral=None):
+        northGate=None, southGate=None, peripheral=None, perimeter=False):
     enc = {"relation": "weihe"}
     if north: enc["north"] = north
     if south: enc["south"] = south
@@ -86,6 +87,8 @@ def _cy(seq, name, north=None, south=None, east=None, west=None,
     if southGate: enc["southGate"] = southGate
     c = {"id": f"cy{seq}", "name": name, "sequence": seq,
          "enclosure": enc, "center": {"role": "tingyuan"}}
+    if perimeter:
+        c["perimeter"] = True
     if peripheral:
         c["peripheral"] = peripheral
     return c
@@ -123,26 +126,26 @@ def build_instance(jin):
         courtyards.append(_cy(1, "正院",
             north=_room("zhengfang", norms), south=_room("daozuofang", norms),
             east=_room("xiangfang", norms), west=_room("xiangfang", norms),
-            peripheral=[{"role": "youlang"}, {"role": "yingbi"}]))
+            peripheral=[{"role": "youlang"}, {"role": "yingbi"}], perimeter=True))
     elif jin == 2:
         courtyards.append(_cy(1, "外院", south=_room("daozuofang", norms),
-                              northGate={"role": "chuihuamen"}))
+                              northGate={"role": "chuihuamen"}, perimeter=True))
         courtyards.append(_cy(2, "内院", north=_room("zhengfang", norms),
             east=_room("xiangfang", norms), west=_room("xiangfang", norms),
-            peripheral=[{"role": "youlang"}, {"role": "yingbi"}]))
+            peripheral=[{"role": "youlang"}, {"role": "yingbi"}], perimeter=True))
     else:
         # jin >= 3
         courtyards.append(_cy(1, "外院", south=_room("daozuofang", norms),
-                              northGate={"role": "chuihuamen"}))
+                              northGate={"role": "chuihuamen"}, perimeter=True))
         for k in range(2, jin):
             peripheral = [{"role": "youlang"}, {"role": "yingbi"}] if k == 2 else None
             courtyards.append(_cy(k, f"内院{k-1}",
                 north=_room("zhengfang", norms), east=_room("xiangfang", norms),
                 west=_room("xiangfang", norms), northGate={"role": "chuihuamen"},
-                peripheral=peripheral))
+                peripheral=peripheral, perimeter=True))
         courtyards.append(_cy(jin, "正院",
             north=_room("houzhaofang", norms), east=_room("xiangfang", norms),
-            west=_room("xiangfang", norms)))
+            west=_room("xiangfang", norms), perimeter=True))
 
     return _wrap(jin, courtyards, rules_doc)
 
@@ -193,7 +196,7 @@ def compute_geometry(instance):
         plotted.append({"w": w, "d": d, "north": north, "south": south,
                         "east": east, "west": west, "c": c})
 
-    gap = 2.0                                      # 院落间垂花门通道
+    gap = 0.0                                      # 院落间紧贴：各院独立围墙，双墙相邻无间隙
     total = sum(p["d"] for p in plotted) + gap * max(n - 1, 0)
     z = -total / 2                                 # 序列1=最南(-Z)，序列N=最北(+Z)
     geometry = []
@@ -237,6 +240,10 @@ def compute_geometry(instance):
             elif prole == "yingbi":
                 geometry.append(_geo_yingbi(w, sd, zc, d))
 
+        # 外围院墙（四面闭合，南面留院门缺口）
+        if p["c"].get("perimeter"):
+            geometry.extend(_geo_perimeter(w, zc, d))
+
         z += p["d"] + gap
     return geometry
 
@@ -278,6 +285,39 @@ def _geo_yingbi(w, sd, zc, d):
     return {"role": "yingbi",
             "center": {"x": round(w / 2 - bw / 2 - 0.5, 3), "y": PERIPH_HEIGHT / 2, "z": round(zpos, 3)},
             "size": {"w": bw, "h": PERIPH_HEIGHT, "d": 0.5}}
+
+
+def _geo_wall(cx, cz, width_x, H, depth_z, role):
+    """单段墙：宽沿 X(width_x)，厚沿 Z(depth_z)。"""
+    return {"role": role,
+            "center": {"x": round(cx, 3), "y": H / 2, "z": round(cz, 3)},
+            "size": {"w": round(width_x, 3), "h": H, "d": round(depth_z, 3)}}
+
+
+def _geo_perimeter(w, zc, d):
+    """外围院墙：四面闭合围墙（北/东/西整段 + 南面留院门缺口分两段）。
+
+    MVP 占位：墙在外边界外侧一圈，不与房屋重叠；高度低于房屋。
+    """
+    H = YUANQIANG_HEIGHT
+    T = 0.4                                    # 墙厚（米）
+    zN = zc + d / 2 + T / 2                    # 北墙中心 Z（正房外侧）
+    zS = zc - d / 2 - T / 2                    # 南墙中心 Z（倒座外侧）
+    xE = w / 2 + T / 2                         # 东墙中心 X
+    xW = -w / 2 - T / 2                        # 西墙中心 X
+    gate = 1.5                                 # 院门半宽（米）
+    half = w / 2
+    out = []
+    out.append(_geo_wall(0, zN, w, H, T, "yuanqiang"))           # 北墙
+    if half > gate:
+        seg = half - gate
+        out.append(_geo_wall(-(gate + seg / 2), zS, seg, H, T, "yuanqiang"))  # 南墙左段
+        out.append(_geo_wall( (gate + seg / 2), zS, seg, H, T, "yuanqiang"))  # 南墙右段
+    else:
+        out.append(_geo_wall(0, zS, w, H, T, "yuanqiang"))       # 南墙（院过窄无门洞）
+    out.append(_geo_wall(xE, zc, T, H, d + 2 * T, "yuanqiang"))  # 东墙（搭接南北）
+    out.append(_geo_wall(xW, zc, T, H, d + 2 * T, "yuanqiang"))  # 西墙
+    return out
 
 
 # ---------------- ⑤ 几何造型引擎：构件 -> 体素 BOX 清单 ----------------
