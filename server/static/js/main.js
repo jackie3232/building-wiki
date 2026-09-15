@@ -44,6 +44,7 @@ const boxRoot = new THREE.Group();
 scene.add(boxRoot);
 
 function clearBoxes() {
+  grow = null;
   if (voxMesh) {
     boxRoot.remove(voxMesh);
     voxMesh.geometry.dispose();
@@ -60,6 +61,8 @@ function clearBoxes() {
 
 let voxMesh = null;
 let voxEdges = null;
+let grow = null;                       // 渐进式生长状态：{ total, start, duration }
+const EDGE_VERTS_PER_BOX = 24;        // 与 addBoxEdges 中 tmpl 顶点数(12条边×2点)一致
 
 function addBoxes(boxes) {
   clearBoxes();
@@ -74,8 +77,10 @@ function addBoxes(boxes) {
   const s = new THREE.Vector3();
   const col = new THREE.Color();
   const FILL = 0.92;   // 实心块微缩留缝，配合边线呈现体素网格感
-  for (let i = 0; i < boxes.length; i++) {
-    const b = boxes[i];
+  // 按 Y 升序（从底向上）组织实例顺序，使渐显呈现“建筑自地面长高”的效果
+  const ordered = [...boxes].sort((a, b) => a.y - b.y);
+  for (let i = 0; i < ordered.length; i++) {
+    const b = ordered[i];
     p.set(b.x, b.y, b.z);
     s.set(b.w * FILL, b.h * FILL, b.d * FILL);
     m.compose(p, q, s);
@@ -85,11 +90,24 @@ function addBoxes(boxes) {
   }
   voxMesh.instanceMatrix.needsUpdate = true;
   if (voxMesh.instanceColor) voxMesh.instanceColor.needsUpdate = true;
-  voxMesh.userData.boxes = boxes;   // 供点选反查构件名
+  voxMesh.userData.boxes = ordered;   // 供点选反查构件名（与实例顺序一致）
   boxRoot.add(voxMesh);
-  addBoxEdges(boxes);                // 叠加每个体素的边框线，凸显体素结构
-  fitCameraToObject(boxRoot);
-  return boxes.length;
+  addBoxEdges(ordered);                // 叠加每个体素的边框线，凸显体素结构（同序）
+
+  // 先按全部体素算好最终构图，相机一开始就对准（避免增长过程中镜头漂移）
+  const bb = computeBoxesAABB(boxes);
+  if (!bb.isEmpty()) fitCameraToBox(bb);
+
+  // 渐进式生长：实例已按 Y 升序组织，故分帧渐显即从底向上“长高”
+  // （InstancedMesh.count 控制可见实例数；边框线用 setDrawRange 同步裁剪）。
+  // 匀速线性增长，便于看清“建筑自地面层层升起”的过程；总数越多耗时越长，封顶 7s。
+  voxMesh.count = 0;
+  if (voxEdges) voxEdges.geometry.setDrawRange(0, 0);
+  const total = ordered.length;
+  const duration = Math.min(7000, Math.max(3000, Math.round(total / 2)));
+  grow = { total, start: performance.now(), duration };
+  setStatus(`正在生成体素模型 · ${total} 体素`);
+  return total;
 }
 
 // 每个体素描一圈边框线（合并为单条 LineSegments，颜色取所属构件色加深），呈现体素划分
@@ -122,8 +140,16 @@ function addBoxEdges(boxes) {
   boxRoot.add(voxEdges);
 }
 
-function fitCameraToObject(obj) {
-  const bb = new THREE.Box3().setFromObject(obj);
+function computeBoxesAABB(boxes) {
+  const bb = new THREE.Box3();
+  for (const b of boxes) {
+    bb.expandByPoint(new THREE.Vector3(b.x - b.w / 2, b.y - b.h / 2, b.z - b.d / 2));
+    bb.expandByPoint(new THREE.Vector3(b.x + b.w / 2, b.y + b.h / 2, b.z + b.d / 2));
+  }
+  return bb;
+}
+
+function fitCameraToBox(bb) {
   if (bb.isEmpty()) return;
   const size = bb.getSize(new THREE.Vector3());
   const center = bb.getCenter(new THREE.Vector3());
@@ -145,6 +171,12 @@ function fitCameraToObject(obj) {
   grid.position.y = bb.min.y - 0.01;
   scene.fog.near = dist * 0.8;
   scene.fog.far = dist * 4;
+}
+
+// 兼容保留：基于场景对象计算（当前仅 addBoxes 改用 fitCameraToBox）
+function fitCameraToObject(obj) {
+  const bb = new THREE.Box3().setFromObject(obj);
+  fitCameraToBox(bb);
 }
 
 /* ---------------- 点选看 label ---------------- */
@@ -190,8 +222,7 @@ async function renderResponse(data) {
     clearBoxes(); setStatus("场景已清空"); return;
   }
   if (Array.isArray(data.boxes)) {
-    const n = addBoxes(data.boxes);
-    setStatus(`已生成体素模型 · ${n} 个体素`);
+    addBoxes(data.boxes);   // 渐进式生长：状态由 addBoxes 启动、animate 在增长完成时收尾
     return;
   }
   setStatus("未返回几何数据");
@@ -258,6 +289,22 @@ function animate() {
   controls.update();
   grid.position.x = Math.round(modelCenter.x);
   grid.position.z = Math.round(modelCenter.z);
+  if (grow && voxMesh) {
+    const t = Math.min(1, (performance.now() - grow.start) / grow.duration);
+    const eased = t;                                // 匀速线性，便于看清生长过程
+    const target = Math.min(grow.total, Math.floor(grow.total * eased));
+    if (target !== voxMesh.count) {
+      voxMesh.count = target;
+      if (voxEdges) voxEdges.geometry.setDrawRange(0, target * EDGE_VERTS_PER_BOX);
+    }
+    if (t >= 1) {
+      voxMesh.count = grow.total;
+      if (voxEdges) voxEdges.geometry.setDrawRange(0, grow.total * EDGE_VERTS_PER_BOX);
+      const n = grow.total;
+      grow = null;
+      setStatus(`已生成体素模型 · ${n} 体素`);
+    }
+  }
   renderer.render(scene, camera);
 }
 animate();

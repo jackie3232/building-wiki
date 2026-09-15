@@ -30,7 +30,7 @@
         "north": { "role": "zhengfang", "ref": "zhengfang", "desc": "北面主体" },
         "east":  { "role": "xiangfang", "ref": "xiangfang", "desc": "东厢：沿庭院方向居中、与正房/倒座各留通道（见 rules.layout.xiangfang）" },
         "west":  { "role": "xiangfang", "ref": "xiangfang", "desc": "西厢：沿庭院方向居中、与正房/倒座各留通道（见 rules.layout.xiangfang）" },
-        "south": { "role": "daozuofang", "ref": "daozuofang", "desc": "南面倒座" },
+        "south": { "role": "daozuofang", "ref": "daozuofang", "desc": "南面倒座；其东端含大门(zhaimen)，见 mainGate" },
         "perimeter": { "role": "yuanqiang", "ref": "yuanqiang", "desc": "围合院落的外围墙（四面闭合，南面留院门缺口）" }
       }
     },
@@ -81,6 +81,15 @@
     "houzhaofang": { "ref": "houzhaofang", "category": "空间角色", "structs": ["wuoding", "qiangti", "taiji", "zhu", "liang", "men", "chuang"] },
     "youlang": { "ref": "youlang", "category": "空间角色", "structs": ["wuoding", "qiangti", "zhu", "liang"] },
     "yingbi": { "ref": "yingbi", "category": "空间角色", "structs": ["qiangti"] },
+    "zhaimen": {
+      "ref": "zhaimen", "category": "空间角色",
+      "modular": {
+        "gateSpan": { "ref": "miankuo", "desc": "门道面阔(约一间)" },
+        "jinshen": { "ref": "jinshen", "desc": "进深" }
+      },
+      "structs": ["men", "qiangti", "wuoding"],
+      "desc": "宅门/大门：倒座房东端一间改门道+门楼，朝东开洞"
+    },
     "yuanqiang": { "ref": "yuanqiang", "category": "空间角色", "structs": ["qiangti"], "desc": "围合院落的外围墙" }
   },
   "modularParams": {

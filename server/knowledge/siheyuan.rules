@@ -19,7 +19,8 @@
     { "role": "xiangfang", "at": ["dong", "xi"], "constraint": "duichen", "ref": ["dong", "xi", "duichen"], "desc": "厢房东西对称" },
     { "role": "daozuofang", "at": "nan_end", "desc": "倒座房位于院落最南" },
     { "role": "chuihuamen", "between": "courtyards", "ref": "chuihuamen", "desc": "垂花门分隔相邻院落" },
-    { "role": "houzhaofang", "at": "north_of_zhengfang", "ref": "houzhaofang", "desc": "后罩房位于正房之后" }
+    { "role": "houzhaofang", "at": "north_of_zhengfang", "ref": "houzhaofang", "desc": "后罩房位于正房之后" },
+    { "role": "zhaimen", "attachedTo": "daozuofang_east", "at": "southeast_corner", "ref": "zhaimen", "desc": "大门位于倒座房东端、院落东南角(坎宅巽门)" }
   ],
   "sequence": {
     "ref": "xulie",

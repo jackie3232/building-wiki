@@ -14,7 +14,9 @@
     "tingyuan":    {"label": "庭院",   "desc": "由房屋围合出的露天院落"},
     "chuihuamen":  {"label": "垂花门", "desc": "分隔外院与内院的内门，装饰性"},
     "youlang":     {"label": "游廊",   "desc": "连接各屋的带顶走廊"},
-    "yingbi":      {"label": "影壁",   "desc": "入口处遮挡视线的短墙"}
+    "yingbi":      {"label": "影壁",   "desc": "入口处遮挡视线的短墙"},
+    "yuanqiang":   {"label": "院墙", "desc": "围合院落的外围墙（四面闭合，南面留院门缺口）"},
+    "zhaimen":     {"label": "大门", "desc": "四合院主入口（宅门）：倒座房东端一间改门道+门楼，位于院落东南角，门道连通街与院"}
   },
   "构件": {
     "wuoding": {"label": "屋顶", "desc": "屋盖"},
