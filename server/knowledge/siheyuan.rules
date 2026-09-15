@@ -32,15 +32,24 @@
   },
   "norms": {
     "modus": 3.3,
+    "courtDepthRatio": 0.6,
+    "layout": {
+      "xiangfang": {
+        "lengthMode": "miankuo",
+        "aisle": 1.5,
+        "zAlign": "center",
+        "desc": "厢房沿庭院方向(Z)长度取自身面阔(3间×modus≈9.9m)，居中放置在正房与倒座之间的庭院区域，南北两端各留1.5m通道，使中央庭院完整保留（不填满庭院、不与正房/倒座紧贴）"
+      }
+    },
     "zhengfang": {
       "miankuo": 5,
       "ratio": { "mingjian": 10, "cijian": 8, "shaojian": 6 },
-      "jinshen": 3,
-      "desc": "正房面阔5间(1明+2次+2梢)；明间最宽，次间≈0.8明间，梢间递减"
+      "jinshen": 2,
+      "desc": "正房面阔5间(1明+2次+2梢)；进深约6.5m(≈2×modus)，据《北京老城保护房屋修缮技术导则2019》正房五檩/七檩进深6.5~7m"
     },
-    "xiangfang": { "miankuo": 3, "jinshen": 2, "desc": "厢房面阔3间" },
-    "daozuofang": { "miankuo": 5, "jinshen": 2, "desc": "倒座房面阔约同正房" },
-    "houzhaofang": { "miankuo": 5, "desc": "后罩房面阔约同正房" },
-    "note": "⚠️ 占位标准型，待文化建设校准"
+    "xiangfang": { "miankuo": 3, "jinshen": 1.4, "desc": "厢房面阔3间；进深约4.5m(≈1.4×modus)，据导则厢房无廊进深4m、带廊5m" },
+    "daozuofang": { "miankuo": 5, "jinshen": 1.4, "desc": "倒座房面阔约同正房；进深较浅约4.5m" },
+    "houzhaofang": { "miankuo": 5, "jinshen": 1.5, "desc": "后罩房面阔约同正房；进深较浅约5m" },
+    "note": "规制数值依据马炳坚《北京四合院建造》、北京市《北京老城保护房屋修缮技术导则(2019)》、清《内务府奏销档》实测折算（modus=每间基准米数，jinshen=进深折合间数）。"
   }
 }

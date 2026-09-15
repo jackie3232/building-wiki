@@ -189,9 +189,9 @@ def compute_geometry(instance):
         north, south, east, west = enc.get("north"), enc.get("south"), enc.get("east"), enc.get("west")
         ref = north or south or {}
         w = _dim(ref, "miankuo", 5) * modus
-        north_depth = _dim(north, "jinshen", 3) * modus
-        south_depth = _dim(south, "jinshen", 2) * modus
-        court_depth = w * 0.6                      # 露天院落进深（MVP 占位）
+        north_depth = _dim(north, "jinshen", 0) * modus   # 缺房则进深记 0（无幽灵进深）
+        south_depth = _dim(south, "jinshen", 0) * modus
+        court_depth = w * norms.get("courtDepthRatio", 0.6)   # 露天院落进深：内院≈见方（据导则内院约10m见方）
         d = north_depth + court_depth + south_depth
         plotted.append({"w": w, "d": d, "north": north, "south": south,
                         "east": east, "west": west, "c": c})
@@ -203,8 +203,8 @@ def compute_geometry(instance):
     for p in plotted:
         zc = z + p["d"] / 2
         w, d = p["w"], p["d"]
-        nd = _dim(p["north"], "jinshen", 3) * modus
-        sd = _dim(p["south"], "jinshen", 2) * modus
+        nd = _dim(p["north"], "jinshen", 0) * modus
+        sd = _dim(p["south"], "jinshen", 0) * modus
 
         if p["north"]:
             geometry.append(_geo_wing(0, w, nd, zc + d / 2 - nd / 2, p["north"]))
@@ -215,12 +215,12 @@ def compute_geometry(instance):
         # 使其与正房只在角上相接、体积不重叠（修此前 厢房/正房 空间重叠）。
         ew_z = zc + (sd - nd) / 2
         if p["east"]:
-            ed = _dim(p["east"], "jinshen", 2) * modus
-            el = d - nd - sd
+            ed = _dim(p["east"], "jinshen", 0) * modus
+            el = _xiangfang_length(p["east"], norms, d, nd, sd, modus)
             geometry.append(_geo_eastwest(+(w / 2 - ed / 2), el, ed, ew_z, p["east"]))
         if p["west"]:
-            ed = _dim(p["west"], "jinshen", 2) * modus
-            el = d - nd - sd
+            ed = _dim(p["west"], "jinshen", 0) * modus
+            el = _xiangfang_length(p["west"], norms, d, nd, sd, modus)
             geometry.append(_geo_eastwest(-(w / 2 - ed / 2), el, ed, ew_z, p["west"]))
 
         # 垂花门（院落分隔 gate）：northGate 表示与前一院落的边界，每边界一个
@@ -260,6 +260,20 @@ def _geo_eastwest(cx, el, ed, zc, role_obj):
     return {"role": role_obj.get("role"),
             "center": {"x": round(cx, 3), "y": WING_HEIGHT / 2, "z": round(zc, 3)},
             "size": {"w": round(ed, 3), "h": WING_HEIGHT, "d": round(el, 3)}}
+
+
+def _xiangfang_length(role_obj, norms, d, nd, sd, modus):
+    """④ 厢房沿庭院方向(Z)长度：读 rules.layout.xiangfang 约束，不再硬编码填满庭院。
+
+    - lengthMode=miankuo：长度取自身面阔(间数×modus)，而非 d-nd-sd
+    - aisle：南北与正房/倒座各留通道，使中央庭院完整保留
+    - zAlign=center 由调用方 ew_z 实现（ew_z 已是庭院净深中心）
+    """
+    layout = (norms.get("layout", {}) or {}).get("xiangfang", {}) or {}
+    aisle = layout.get("aisle", 1.5)
+    own = _dim(role_obj, "miankuo", 3) * modus       # 自身面阔(3间×3.3)
+    court_net = d - nd - sd                          # 庭院净深
+    return round(min(own, court_net - 2 * aisle), 3)
 
 
 def _geo_gate(zc, w, role):

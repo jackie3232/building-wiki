@@ -28,8 +28,8 @@
       "ref": "weihe",
       "sides": {
         "north": { "role": "zhengfang", "ref": "zhengfang", "desc": "北面主体" },
-        "east":  { "role": "xiangfang", "ref": "xiangfang", "desc": "东厢" },
-        "west":  { "role": "xiangfang", "ref": "xiangfang", "desc": "西厢" },
+        "east":  { "role": "xiangfang", "ref": "xiangfang", "desc": "东厢：沿庭院方向居中、与正房/倒座各留通道（见 rules.layout.xiangfang）" },
+        "west":  { "role": "xiangfang", "ref": "xiangfang", "desc": "西厢：沿庭院方向居中、与正房/倒座各留通道（见 rules.layout.xiangfang）" },
         "south": { "role": "daozuofang", "ref": "daozuofang", "desc": "南面倒座" },
         "perimeter": { "role": "yuanqiang", "ref": "yuanqiang", "desc": "围合院落的外围墙（四面闭合，南面留院门缺口）" }
       }
