@@ -23,81 +23,309 @@
   "courtyard": {
     "refRole": "tingyuan",
     "desc": "基本空间单元：由房屋围合出的露天院落",
-    "enclosure": {
-      "relation": "weihe",
-      "ref": "weihe",
-      "sides": {
-        "north": { "role": "zhengfang", "ref": "zhengfang", "desc": "北面主体" },
-        "east":  { "role": "xiangfang", "ref": "xiangfang", "desc": "东厢：沿庭院方向居中、与正房/倒座各留通道（见 rules.layout.xiangfang）" },
-        "west":  { "role": "xiangfang", "ref": "xiangfang", "desc": "西厢：沿庭院方向居中、与正房/倒座各留通道（见 rules.layout.xiangfang）" },
-        "south": { "role": "daozuofang", "ref": "daozuofang", "desc": "南面倒座；其东端含大门(zhaimen)，见 mainGate" },
-        "perimeter": { "role": "yuanqiang", "ref": "yuanqiang", "desc": "围合院落的外围墙（四面闭合，南面留院门缺口）" }
-      }
+    "center": {
+      "role": "tingyuan",
+      "ref": "tingyuan",
+      "desc": "院落中心（露天）"
     },
-    "center": { "role": "tingyuan", "ref": "tingyuan", "desc": "院落中心（露天）" },
     "gate": {
       "role": "chuihuamen",
       "ref": "chuihuamen",
-      "cond": "jin>1",
-      "desc": "仅当进数>1，分隔相邻院落"
+      "boundary": "between_sequence_1_and_2",
+      "cond": "jin>=2",
+      "desc": "仅一进→二进分界（卡子墙正中、中轴线）设一道垂花门；其余院落边界不设独立门楼（二进→三进经正房明间穿堂）"
     },
     "peripheral": [
-      { "role": "youlang", "ref": "youlang", "desc": "游廊连接各屋（可选）" },
-      { "role": "yingbi", "ref": "yingbi", "desc": "入口影壁（可选）" },
-      { "role": "erfang", "ref": "erfang", "attachTo": "zhengfang", "cond": "optional", "desc": "耳房接正房两侧（可选）" },
-      { "role": "houzhaofang", "ref": "houzhaofang", "cond": "jin>=3", "desc": "后罩房位于正房之后（多进时出现）" }
-    ]
+      {
+        "role": "youlang",
+        "ref": "youlang",
+        "desc": "游廊连接各屋（可选）"
+      },
+      {
+        "role": "yingbi",
+        "ref": "yingbi",
+        "desc": "入口影壁（可选）"
+      },
+      {
+        "role": "erfang",
+        "ref": "erfang",
+        "attachTo": "zhengfang",
+        "cond": "optional",
+        "desc": "耳房接正房两侧（可选）"
+      },
+      {
+        "role": "houzhaofang",
+        "ref": "houzhaofang",
+        "cond": "jin>=3",
+        "desc": "后罩房位于正房之后（多进时出现）"
+      }
+    ],
+    "ring": {
+      "relation": "weihe",
+      "ref": "weihe",
+      "desc": "院落连续围墙基底（boundarySegmentRealization 院墙环分段实现）：每院先有一道完整四侧墙环（纯围墙基线）；叠加建筑后，其贴边界的后檐墙分段实现（替换）对应围墙段；建筑间空隙由补墙/游廊填。每侧墙基底默认存在（provider=null 即独立院墙），该侧若有建筑后檐墙则声明 provider 分段实现该侧。",
+      "sides": {
+        "north": {
+          "wall": "yuanqiang",
+          "candidateProvider": "zhengfang",
+          "ref": "zhengfang",
+          "desc": "北墙基底；默认由正房/后罩房后檐墙提供，无北房则为独立院墙"
+        },
+        "south": {
+          "wall": "yuanqiang",
+          "candidateProvider": "daozuofang",
+          "ref": "daozuofang",
+          "desc": "南墙基底；默认由倒座房后檐墙提供，无倒座则为独立院墙"
+        },
+        "east": {
+          "wall": "yuanqiang",
+          "candidateProvider": "xiangfang",
+          "ref": "xiangfang",
+          "desc": "东墙基底；默认由东厢房后檐墙提供，无东厢则为独立院墙"
+        },
+        "west": {
+          "wall": "yuanqiang",
+          "candidateProvider": "xiangfang",
+          "ref": "xiangfang",
+          "desc": "西墙基底；默认由西厢房后檐墙提供，无西厢则为独立院墙"
+        }
+      }
+    }
   },
   "roles": {
     "zhengfang": {
-      "ref": "zhengfang", "category": "空间角色",
+      "ref": "zhengfang",
+      "category": "空间角色",
       "modular": {
-        "miankuo": { "ref": "miankuo", "desc": "面阔(开间总数)" },
-        "jinshen": { "ref": "jinshen", "desc": "进深" },
-        "jianComposition": ["mingjian", "cijian", "cijian", "shaojian", "shaojian"]
+        "miankuo": {
+          "ref": "miankuo",
+          "desc": "面阔(开间总数)"
+        },
+        "jinshen": {
+          "ref": "jinshen",
+          "desc": "进深"
+        },
+        "jianComposition": [
+          "mingjian",
+          "cijian",
+          "cijian",
+          "shaojian",
+          "shaojian"
+        ]
       },
-      "structs": ["wuoding", "qiangti", "taiji", "zhu", "liang", "men", "chuang"]
+      "structs": [
+        "wuoding",
+        "qiangti",
+        "taiji",
+        "zhu",
+        "liang",
+        "men",
+        "chuang"
+      ]
     },
     "xiangfang": {
-      "ref": "xiangfang", "category": "空间角色",
+      "ref": "xiangfang",
+      "category": "空间角色",
       "modular": {
-        "miankuo": { "ref": "miankuo" },
-        "jinshen": { "ref": "jinshen" },
-        "jianComposition": ["mingjian", "cijian", "cijian"]
+        "miankuo": {
+          "ref": "miankuo"
+        },
+        "jinshen": {
+          "ref": "jinshen"
+        },
+        "jianComposition": [
+          "mingjian",
+          "cijian",
+          "cijian"
+        ]
       },
-      "structs": ["wuoding", "qiangti", "taiji", "zhu", "liang", "men", "chuang"]
+      "structs": [
+        "wuoding",
+        "qiangti",
+        "taiji",
+        "zhu",
+        "liang",
+        "men",
+        "chuang"
+      ]
     },
     "daozuofang": {
-      "ref": "daozuofang", "category": "空间角色",
+      "ref": "daozuofang",
+      "category": "空间角色",
       "modular": {
-        "miankuo": { "ref": "miankuo" },
-        "jinshen": { "ref": "jinshen" }
+        "miankuo": {
+          "ref": "miankuo"
+        },
+        "jinshen": {
+          "ref": "jinshen"
+        }
       },
-      "structs": ["wuoding", "qiangti", "taiji", "zhu", "liang", "men", "chuang"]
+      "structs": [
+        "wuoding",
+        "qiangti",
+        "taiji",
+        "zhu",
+        "liang",
+        "men",
+        "chuang"
+      ]
     },
-    "tingyuan": { "ref": "tingyuan", "category": "空间角色", "open": true, "desc": "露天院落，无屋盖" },
-    "chuihuamen": { "ref": "chuihuamen", "category": "空间角色", "structs": ["men", "qiangti", "wuoding"] },
-    "erfang": { "ref": "erfang", "category": "空间角色", "structs": ["wuoding", "qiangti", "taiji", "zhu", "liang"] },
-    "houzhaofang": { "ref": "houzhaofang", "category": "空间角色", "structs": ["wuoding", "qiangti", "taiji", "zhu", "liang", "men", "chuang"] },
-    "youlang": { "ref": "youlang", "category": "空间角色", "structs": ["wuoding", "qiangti", "zhu", "liang"] },
-    "yingbi": { "ref": "yingbi", "category": "空间角色", "structs": ["qiangti"] },
+    "tingyuan": {
+      "ref": "tingyuan",
+      "category": "空间角色",
+      "open": true,
+      "desc": "露天院落，无屋盖"
+    },
+    "chuihuamen": {
+      "ref": "chuihuamen",
+      "category": "空间角色",
+      "structs": [
+        "men",
+        "qiangti",
+        "wuoding"
+      ]
+    },
+    "erfang": {
+      "ref": "erfang",
+      "category": "空间角色",
+      "structs": [
+        "wuoding",
+        "qiangti",
+        "taiji",
+        "zhu",
+        "liang"
+      ]
+    },
+    "houzhaofang": {
+      "ref": "houzhaofang",
+      "category": "空间角色",
+      "structs": [
+        "wuoding",
+        "qiangti",
+        "taiji",
+        "zhu",
+        "liang",
+        "men",
+        "chuang"
+      ]
+    },
+    "youlang": {
+      "ref": "youlang",
+      "category": "空间角色",
+      "structs": [
+        "wuoding",
+        "qiangti",
+        "zhu",
+        "liang"
+      ]
+    },
+    "yingbi": {
+      "ref": "yingbi",
+      "category": "空间角色",
+      "structs": [
+        "qiangti"
+      ]
+    },
     "zhaimen": {
-      "ref": "zhaimen", "category": "空间角色",
+      "ref": "zhaimen",
+      "category": "空间角色",
       "modular": {
-        "gateSpan": { "ref": "miankuo", "desc": "门道面阔(约一间)" },
-        "jinshen": { "ref": "jinshen", "desc": "进深" }
+        "gateSpan": {
+          "ref": "miankuo",
+          "desc": "门道面阔(约一间)"
+        },
+        "jinshen": {
+          "ref": "jinshen",
+          "desc": "进深"
+        }
       },
-      "structs": ["men", "qiangti", "wuoding"],
-      "desc": "宅门/大门：倒座房东端一间改门道+门楼，朝东开洞"
+      "structs": [
+        "men",
+        "qiangti",
+        "wuoding"
+      ],
+      "desc": "宅门/大门：倒座房东端一间改门道+门楼，门道南北贯通(临街↔内院)"
     },
-    "yuanqiang": { "ref": "yuanqiang", "category": "空间角色", "structs": ["qiangti"], "desc": "围合院落的外围墙" }
+    "yuanqiang": {
+      "ref": "yuanqiang",
+      "category": "空间角色",
+      "structs": [
+        "qiangti"
+      ],
+      "desc": "围合院落的外围墙（围墙类）"
+    },
+    "kaziqiang": {
+      "ref": "kaziqiang",
+      "category": "空间角色",
+      "structs": [
+        "qiangti"
+      ],
+      "desc": "分隔外院与内院的院墙，正中开垂花门"
+    },
+    "chuantang": {
+      "ref": "chuantang",
+      "category": "空间角色",
+      "structs": [
+        "men",
+        "qiangti",
+        "wuoding"
+      ],
+      "desc": "正房明间做南北贯通过厅，连通内院与后院"
+    },
+    "jiaodao": {
+      "ref": "jiaodao",
+      "category": "空间角色",
+      "structs": [
+        "qiangti"
+      ],
+      "desc": "耳房尽端窄通道，通后院备选路径"
+    }
   },
   "modularParams": {
-    "jin":      { "ref": "jin", "desc": "院落进数（变体开关）：1单进 / 2两进 / 3三进" },
-    "miankuo":  { "ref": "miankuo", "desc": "面阔开间总数" },
-    "jinshen":  { "ref": "jinshen", "desc": "进深" },
-    "mingjian": { "ref": "mingjian", "desc": "明间(正中,最宽)" },
-    "cijian":   { "ref": "cijian", "desc": "次间" },
-    "shaojian": { "ref": "shaojian", "desc": "梢间" }
+    "jin": {
+      "ref": "jin",
+      "desc": "院落进数（变体开关）：1单进 / 2两进 / 3三进"
+    },
+    "miankuo": {
+      "ref": "miankuo",
+      "desc": "面阔开间总数"
+    },
+    "jinshen": {
+      "ref": "jinshen",
+      "desc": "进深"
+    },
+    "mingjian": {
+      "ref": "mingjian",
+      "desc": "明间(正中,最宽)"
+    },
+    "cijian": {
+      "ref": "cijian",
+      "desc": "次间"
+    },
+    "shaojian": {
+      "ref": "shaojian",
+      "desc": "梢间"
+    }
+  },
+  "wall": {
+    "ref": "yuanqiang",
+    "desc": "墙实体：boundarySegmentRealization（院墙环分段实现）模型中每侧墙环的实例。坐标由几何层按 ring 声明生成。",
+    "attrs": {
+      "side": {
+        "desc": "方位 north/south/east/west"
+      },
+      "kind": {
+        "desc": "墙种：外围围墙/卡子墙/后檐墙/补墙/游廊/影壁"
+      },
+      "provider": {
+        "desc": "分段实现本段墙的建筑角色；null=独立院墙"
+      },
+      "height": {
+        "desc": "墙高"
+      },
+      "thickness": {
+        "desc": "墙厚"
+      }
+    }
   }
 }

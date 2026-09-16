@@ -7,33 +7,166 @@
     "note": "⚠️ 规制数值为传统标准型占位参考，待用户（文化建设主场）校准真实古建数字"
   },
   "paramRanges": {
-    "jin": { "ref": "jin", "range": [1, 4], "desc": "院落进数允许范围（已放宽至四进）" }
+    "jin": {
+      "ref": "jin",
+      "range": [
+        1,
+        4
+      ],
+      "desc": "院落进数允许范围（已放宽至四进）"
+    }
   },
   "orientation": [
-    { "role": "zhengfang", "must": "zuobeichaonan", "ref": "zuobeichaonan", "desc": "正房坐北朝南" },
-    { "role": "daozuofang", "faces": "bei", "ref": "bei", "desc": "倒座房朝北，与正房相对" },
-    { "role": "xiangfang", "faces": ["dong", "xi"], "ref": ["dong", "xi"], "desc": "厢房东/西向，山墙朝外" }
+    {
+      "role": "zhengfang",
+      "must": "zuobeichaonan",
+      "ref": "zuobeichaonan",
+      "desc": "正房坐北朝南"
+    },
+    {
+      "role": "daozuofang",
+      "faces": "bei",
+      "ref": "bei",
+      "desc": "倒座房朝北，与正房相对"
+    },
+    {
+      "role": "xiangfang",
+      "faces": [
+        "dong",
+        "xi"
+      ],
+      "ref": [
+        "dong",
+        "xi"
+      ],
+      "desc": "厢房东/西向，山墙朝外"
+    },
+    {
+      "role": "chuihuamen",
+      "faces": [
+        "nan",
+        "bei"
+      ],
+      "ref": [
+        "nan",
+        "bei"
+      ],
+      "desc": "垂花门南临外院、北对内院，门道南北贯通"
+    },
+    {
+      "role": "zhaimen",
+      "faces": [
+        "nan",
+        "bei"
+      ],
+      "ref": [
+        "nan",
+        "bei"
+      ],
+      "desc": "宅门南临街、北对内院，门道南北贯通"
+    }
   ],
   "position": [
-    { "role": "zhengfang", "at": "zhongzhou_north", "constraint": "juzhong", "ref": ["zhongzhou", "juzhong"], "desc": "正房居中、位于中轴北端" },
-    { "role": "xiangfang", "at": ["dong", "xi"], "constraint": "duichen", "ref": ["dong", "xi", "duichen"], "desc": "厢房东西对称" },
-    { "role": "daozuofang", "at": "nan_end", "desc": "倒座房位于院落最南" },
-    { "role": "chuihuamen", "between": "courtyards", "ref": "chuihuamen", "desc": "垂花门分隔相邻院落" },
-    { "role": "houzhaofang", "at": "north_of_zhengfang", "ref": "houzhaofang", "desc": "后罩房位于正房之后" },
-    { "role": "zhaimen", "attachedTo": "daozuofang_east", "at": "southeast_corner", "ref": "zhaimen", "desc": "大门位于倒座房东端、院落东南角(坎宅巽门)" }
+    {
+      "role": "zhengfang",
+      "at": "zhongzhou_north",
+      "constraint": "juzhong",
+      "ref": [
+        "zhongzhou",
+        "juzhong"
+      ],
+      "desc": "正房居中、位于中轴北端"
+    },
+    {
+      "role": "xiangfang",
+      "at": [
+        "dong",
+        "xi"
+      ],
+      "constraint": "duichen",
+      "ref": [
+        "dong",
+        "xi",
+        "duichen"
+      ],
+      "desc": "厢房东西对称"
+    },
+    {
+      "role": "daozuofang",
+      "at": "nan_end",
+      "desc": "倒座房位于院落最南"
+    },
+    {
+      "role": "chuihuamen",
+      "between": [
+        "一进",
+        "二进"
+      ],
+      "at": "kaziqiang_center",
+      "constraint": "zhongzhou",
+      "ref": [
+        "chuihuamen",
+        "kaziqiang",
+        "zhongzhou"
+      ],
+      "desc": "垂花门仅设于卡子墙正中、中轴线，分隔一进(外院)与二进(内院)；二进→三进不设独立门楼"
+    },
+    {
+      "role": "houzhaofang",
+      "at": "north_of_zhengfang",
+      "ref": "houzhaofang",
+      "desc": "后罩房位于正房之后"
+    },
+    {
+      "role": "chuantang",
+      "at": "zhengfang_mingjian",
+      "when": "jin>=3",
+      "ref": [
+        "chuantang",
+        "zhengfang",
+        "mingjian"
+      ],
+      "desc": "三进时内院正房明间(中央开间)做穿堂，南北开门连通后院；备选为东耳房尽端夹道"
+    },
+    {
+      "role": "zhaimen",
+      "attachedTo": "daozuofang_east",
+      "at": "southeast_corner",
+      "ref": "zhaimen",
+      "desc": "大门位于倒座房东端、院落东南角(坎宅巽门)"
+    }
   ],
   "sequence": {
     "ref": "xulie",
     "desc": "进沿中轴南北序列；进数↑院落往南加",
     "byJin": {
-      "1": ["正院(正房北 + 厢房东西 + 倒座房南 + 庭院)"],
-      "2": ["外院", "chuihuamen", "内院"],
-      "3": ["外院", "chuihuamen", "内院", "正院(含后罩房)"]
+      "1": [
+        "正院(正房北 + 厢房东西 + 倒座房南 + 庭院)"
+      ],
+      "2": [
+        "外院(倒座房南+影壁)",
+        "chuihuamen(卡子墙,一进→二进)",
+        "内院(正房+厢房)"
+      ],
+      "3": [
+        "外院(倒座房南+影壁)",
+        "chuihuamen(卡子墙,一进→二进)",
+        "内院(正房+厢房,正房明间为穿堂)",
+        "后院(正房之后+后罩房,经穿堂/夹道连通)"
+      ]
     }
   },
   "norms": {
     "modus": 3.3,
-    "courtDepthRatio": 0.6,
+    "courtDepthRatio": {
+      "byRole": {
+        "front": 0.3,
+        "main": 0.6,
+        "back": 0.42
+      },
+      "default": 0.45,
+      "desc": "露天院落进深=面阔×ratio，按院落角色：front=前院(最浅)、main=正房主院(最大)、back=后院(居中)。一进仅 main；二进=front+main；三进=front+main+back。main=最靠南(序列最小)的正房院，front=main 之前的院，back=main 之后的院。"
+    },
     "layout": {
       "xiangfang": {
         "lengthMode": "miankuo",
@@ -44,13 +177,104 @@
     },
     "zhengfang": {
       "miankuo": 5,
-      "ratio": { "mingjian": 10, "cijian": 8, "shaojian": 6 },
       "jinshen": 2,
       "desc": "正房面阔5间(1明+2次+2梢)；进深约6.5m(≈2×modus)，据《北京老城保护房屋修缮技术导则2019》正房五檩/七檩进深6.5~7m"
     },
-    "xiangfang": { "miankuo": 3, "jinshen": 1.4, "desc": "厢房面阔3间；进深约4.5m(≈1.4×modus)，据导则厢房无廊进深4m、带廊5m" },
-    "daozuofang": { "miankuo": 5, "jinshen": 1.4, "desc": "倒座房面阔约同正房；进深较浅约4.5m" },
-    "houzhaofang": { "miankuo": 5, "jinshen": 1.5, "desc": "后罩房面阔约同正房；进深较浅约5m" },
-    "note": "规制数值依据马炳坚《北京四合院建造》、北京市《北京老城保护房屋修缮技术导则(2019)》、清《内务府奏销档》实测折算（modus=每间基准米数，jinshen=进深折合间数）。"
+    "xiangfang": {
+      "miankuo": 3,
+      "jinshen": 1.4,
+      "desc": "厢房面阔3间；进深约4.5m(≈1.4×modus)，据导则厢房无廊进深4m、带廊5m"
+    },
+    "daozuofang": {
+      "miankuo": 5,
+      "jinshen": 1.4,
+      "desc": "倒座房面阔约同正房；进深较浅约4.5m"
+    },
+    "houzhaofang": {
+      "miankuo": 5,
+      "jinshen": 1.5,
+      "desc": "后罩房面阔约同正房；进深较浅约5m"
+    },
+    "chuihuamen": {
+      "gateSpan": 1.2,
+      "height": 3.3,
+      "desc": "垂花门面阔约一间(占位)；门楼可略抬高"
+    },
+    "chuantang": {
+      "mingjianOpen": true,
+      "desc": "正房明间(中央开间)南北双向开门，作过厅连通后院"
+    },
+    "note": "规制数值依据马炳坚《北京四合院建造》、北京市《北京老城保护房屋修缮技术导则(2019)》、清《内务府奏销档》实测折算（modus=每间基准米数，jinshen=进深折合间数）。",
+    "wall": {
+      "height": 3.3,
+      "thickness": 0.4,
+      "outerThickness": 0.4,
+      "desc": "院墙默认高3.3m、厚0.4m；外围围墙可略高(3.6m)"
+    }
+  },
+  "wall": {
+    "model": "boundarySegmentRealization",
+    "base": "perCourtyardRing",
+    "ref": "yuanqiang_gongqiang",
+    "taxonomy": {
+      "围墙": {
+        "desc": "围合院落、不属任何单栋房屋；基线状态即完整院墙环（外圈外围院墙 + 各进内隔墙）。",
+        "kinds": ["weiqiang", "kaziqiang", "buqiang", "youlang", "yingbi"]
+      },
+      "建筑用墙(非围墙)": {
+        "desc": "围合房间、属房屋结构；其贴边界段（后檐墙）兼作院墙、分段替换基线围墙对应段。",
+        "kinds": ["houyanqiang"]
+      }
+    },
+    "desc": "无建筑时每院仅有完整院墙环（外圈外围院墙 + 各进内隔墙，纯围墙基线）；叠加建筑后，其贴边界的后檐墙分段实现（替换）对应围墙段。坐标零，由几何层实例化。",
+    "kinds": {
+      "weiqiang": {
+        "ref": "weiqiang",
+        "label": "外围围墙",
+        "desc": "整座院落群最外圈连续围墙，高大不开窗；由各进院落外圈段拼合构成",
+        "height": 3.6,
+        "thickness": 0.4
+      },
+      "kaziqiang": {
+        "ref": "kaziqiang",
+        "label": "卡子墙",
+        "desc": "院落间分隔墙，正中开垂花门",
+        "height": 3.3,
+        "thickness": 0.4
+      },
+      "houyanqiang": {
+        "ref": "houyanqiang",
+        "label": "后檐墙",
+        "desc": "建筑自带、兼作院落边界的墙",
+        "height": 3.3,
+        "thickness": 0.3
+      },
+      "buqiang": {
+        "ref": "buqiang",
+        "label": "补墙",
+        "desc": "建筑间空隙填补短墙",
+        "height": 3.3,
+        "thickness": 0.4
+      },
+      "youlang": {
+        "ref": "youlang",
+        "label": "游廊",
+        "desc": "连接各屋带顶走廊（可选）"
+      },
+      "yingbi": {
+        "ref": "yingbi",
+        "label": "影壁",
+        "desc": "入口遮挡短墙（可选）"
+      }
+    },
+    "boundarySegment": {
+      "ringBaseExists": true,
+      "buildingRealizesSegment": true,
+      "gapFill": [
+        "buqiang",
+        "youlang"
+      ],
+      "desc": "每院四侧先有墙基底（纯围墙基线）；provider=建筑时该侧由建筑后檐墙分段实现(替换，不另画独立墙)；provider=null时画独立院墙(yuanqiang)，与相邻建筑后檐墙共线；门(gate)在段上开缺"
+    }
   }
 }
