@@ -23,7 +23,7 @@ BUILDING.WIKI · MVP 服务（重构版）
 import json
 import os
 import sys
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -34,6 +34,8 @@ STATIC = os.path.join(BASE, "static")
 
 
 class Handler(BaseHTTPRequestHandler):
+    timeout = 15                      # 半开/闲置连接不占死线程（单线程版曾因此卡死）
+
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
         data = body if isinstance(body, (bytes, bytearray)) else body.encode("utf-8")
         self.send_response(code)
@@ -96,4 +98,4 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     print(f"[BUILDING.WIKI] MVP server on http://0.0.0.0:{port}")
-    HTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
