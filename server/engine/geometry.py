@@ -604,32 +604,44 @@ def _resolve_boundary(components):
 
     同一条共线墙线上，建筑墙(后檐墙/山墙, pri=1)优先于独立院墙(yuanqiang, pri=0)：
     把被建筑覆盖的区间从 yuanqiang 段中【区间相减】掉（非整段删），保留真正空档。
+
+    建筑自身的门/窗洞口（由矮薄的门楣标记，见 _geo_front_wall）一并算作「建筑覆盖段」——
+    洞口是建筑的开口，独立院墙不得残留在洞口中（否则会把穿堂/门洞堵死）。
     resolver 只看真实几何覆盖，不预判任何建筑位置——增删建筑时该侧院墙自动补/让。
     """
-    thin = WALL_THICKNESS + 0.15                  # 细墙判定容差（墙厚 0.3~0.4）
+    thin = WALL_THICKNESS + 0.15                  # 细墙/门楣判定容差（墙厚 0.3~0.4）
     walls = []                                    # [orient, line, lo, hi, pri, idx]
+    holes_extra = []                              # [orient, line, lo, hi] 洞口(门楣)区间
     for i, g in enumerate(components):
         s = g.get("size", {}) or {}
         c = g.get("center", {}) or {}
         w, h, d = s.get("w", 0), s.get("h", 0), s.get("d", 0)
-        if h <= 1.5 or min(w, d) > thin:          # 非墙：地面/屋顶/门楣/大块
+        if min(w, d) > thin:                      # 宽块：地面/屋顶/门楼顶等，非墙
             continue
-        pri = 0 if g.get("role") == "yuanqiang" else 1
-        if w < d:                                 # 南北向墙(沿 Z)，线=x
+        if w < d:                                 # 南北向构件(沿 Z)，线=x
             orient, line = "V", c.get("x", 0)
             lo, hi = c.get("z", 0) - d / 2, c.get("z", 0) + d / 2
-        else:                                     # 东西向墙(沿 X)，线=z
+        else:                                     # 东西向构件(沿 X)，线=z
             orient, line = "H", c.get("z", 0)
             lo, hi = c.get("x", 0) - w / 2, c.get("x", 0) + w / 2
+        if h <= 1.5:                              # 矮薄块 = 门楣(洞口顶)：记录该洞口区间
+            if g.get("role") != "yuanqiang":
+                holes_extra.append([orient, line, lo, hi])
+            continue
+        pri = 0 if g.get("role") == "yuanqiang" else 1
         walls.append([orient, line, lo, hi, pri, i])
 
     groups = {}
     for wl in walls:                              # 按共线(容差 0.1m)分组
         groups.setdefault((wl[0], round(wl[1], 1)), []).append(wl)
+    extra_groups = {}
+    for lt in holes_extra:
+        extra_groups.setdefault((lt[0], round(lt[1], 1)), []).append((lt[2], lt[3]))
 
     dropped, extra = set(), []
-    for segs in groups.values():
-        high = [(s[2], s[3]) for s in segs if s[4] == 1]      # 建筑段 = 洞
+    for key, segs in groups.items():
+        ivs = [(s[2], s[3]) for s in segs if s[4] == 1] + extra_groups.get(key, [])
+        high = _merge_ivs(ivs)                               # 建筑覆盖段(含门窗洞口) = 洞
         for s in segs:
             if s[4] != 0:                                     # 建筑段原样保留
                 continue
@@ -665,6 +677,17 @@ def _resolve_boundary(components):
                 else:
                     extra.append(nc)
     return [components[i] for i in range(len(components)) if i not in dropped] + extra
+
+
+def _merge_ivs(ivs):
+    """合并重叠/相接的区间：把建筑墙段与其门楣洞口并成连续的「建筑覆盖段」。"""
+    out = []
+    for a, b in sorted(ivs):
+        if out and a <= out[-1][1] + 1e-6:
+            out[-1] = (out[-1][0], max(out[-1][1], b))
+        else:
+            out.append((a, b))
+    return out
 
 
 
