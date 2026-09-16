@@ -331,7 +331,7 @@ def compute_geometry(instance):
                 continue
             prole = per.get("role")
             if prole == "youlang":
-                geometry.append(_geo_youlang(w, nd, zc, d))
+                geometry.extend(_geo_youlang(w, nd, zc, d))
             elif prole == "yingbi":
                 geometry.append(_geo_yingbi(w, sd, zc, d))
 
@@ -525,12 +525,31 @@ def _geo_chuihua(zc, w, role, norms):
 
 
 def _geo_youlang(w, nd, zc, d):
-    """游廊：正房前檐的窄廊（占位）"""
+    """游廊：正房前檐的柱廊——柱列 + 廊顶，通透无实墙（抄手游廊的直段）。
+
+    廊与院墙不同：不围合，只提供有顶通道。中轴穿堂口断开 DOOR_WIDTH，
+    让出正房明间南北通行的门道（否则就成了堵在正房前的一堵墙）。
+    """
+    out = []
     depth = 1.2
     zpos = zc + d / 2 - nd - depth / 2
-    return {"role": "youlang",
-            "center": {"x": 0, "y": PERIPH_HEIGHT / 2, "z": round(zpos, 3)},
-            "size": {"w": round(w * 0.85, 3), "h": PERIPH_HEIGHT, "d": depth}}
+    half = (w * 0.85) / 2.0
+    gap = DOOR_WIDTH
+    top_h, col = 0.2, WALL_THICKNESS
+    for a, b in ((-half, -gap / 2.0), (gap / 2.0, half)):    # 左右两段，中间让开穿堂
+        seg = b - a
+        if seg <= 0.05:
+            continue
+        # 廊顶：薄板，跨该段
+        out.append(_geo_slab("youlang", (a + b) / 2.0, PERIPH_HEIGHT - top_h / 2.0,
+                             zpos, seg, top_h, depth))
+        # 柱列：两端 + 按约 2.5m 间距均布
+        n = max(2, int(round(seg / 2.5)) + 1)
+        for i in range(n):
+            x = a + seg * i / (n - 1)
+            out.append(_geo_slab("youlang", x, (PERIPH_HEIGHT - top_h) / 2.0,
+                                 zpos, col, PERIPH_HEIGHT - top_h, col))
+    return out
 
 
 def _geo_yingbi(w, sd, zc, d):
