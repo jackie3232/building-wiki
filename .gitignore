@@ -28,3 +28,6 @@ server/*.log
 
 # 工作记忆（本地备忘，不入库）
 .workbuddy/
+
+# WorkBuddy 应用描述文件（本地工具产物，不入库）
+.wbapp_*.genie

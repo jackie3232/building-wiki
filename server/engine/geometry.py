@@ -15,6 +15,7 @@
 - compute_geometry(instance) = ④：instance -> 构件列表（连续几何，绝对坐标，无 color/label）
 - geometry_to_boxes(geo)     = ⑤：构件 -> box 像素网格（选 Box 基元 + 补 label/color）
 - instance_to_boxes(inst)    = 串联 ①->④->⑤（app.py 仅调此）
+- build_tour_path(inst, geo) = ④ 布局 + 实际构件 -> 游览路线 DATA（纯展示层派生，实时生成，不回灌 ④/⑤）
 
 设计铁律（见 架构设计总览.md §7/§9/§14、几何计算引擎IO契约.md）：
 - 零坐标：instance 不含 x/y/z；④ 据「间」模数与拓扑算绝对坐标（④ 本职）。
@@ -42,6 +43,13 @@ ZHAMEN_GATE_SPAN = 3.0       # 大门(宅门)门道面阔（米，MVP 占位；�
 ZHAMEN_HEIGHT = 4.2          # 大门门楼屋顶高度（米，高于普通房屋，MVP 占位；优先从 norms.zhaimen.height 取）
 ZHAMEN_EAST_MARGIN = 0.8      # 大门东边缘距院墙东端留白（米），使东南角院墙完整闭合
 CHUIHUA_GATE_SPAN = 3.0       # 垂花门面阔（米，约一间；优先从 norms.chuihuamen.gateSpan 取）
+
+# —— 游览路线派生的落位参数（build_tour_path 用，纯展示层语义，不进图谱）——
+TOUR_OUTSIDE = 3.5            # 起点：最南院门外沿门轴再外扩的距离（米）
+TOUR_STEP = 0.30              # 台基面高度：穿门/穿堂时的落脚面（米）
+TOUR_PAUSE = 1.6              # 庭心驻足时长（秒）
+TOUR_END_PAUSE = 2.4          # 终点回望时长（秒）
+TOUR_DOOR_DEPTH_HALF = 0.6    # 穿门点距门体中心的纵向偏移，使落点落在门道内而非墙面（米）
 
 # 体素边长（米）。越小越细、box 越多；越大越省、体素感越弱。MVP 提速版适中取值。
 VOXEL_SIZE = 0.6
@@ -248,11 +256,11 @@ def _role_of(obj, default):
     return default
 
 
-def compute_geometry(instance):
-    """④ 几何计算：instance -> 构件列表。每个构件 = {role, center:{x,y,z}, size:{w,h,d}}。
+def _layout(instance):
+    """④ 布局定位：算每院占地(w/d)与南北中心(zc)。
 
-    - 只读 instance（data + appliedRules）；MODUS 从 appliedRules.norms 取。
-    - 输出是构件（连续几何），不是 box、不是空间。庭院虚空不输出。
+    compute_geometry 与 build_tour_path 共用同一份布局计算，杜绝公式两处实现产生漂移。
+    返回 (plotted, norms, modus)；plotted[i] 含 {w,d,nd,sd,zc,north,south,east,west,c}。
     """
     data = instance.get("data", instance)
     applied = instance.get("appliedRules", {})
@@ -260,19 +268,18 @@ def compute_geometry(instance):
     modus = norms.get("modus", MODUS)
 
     courtyards = sorted(data.get("courtyards", []), key=lambda c: c.get("sequence", 0))
-    n = len(courtyards)
-    if n == 0:
-        return []
+    if not courtyards:
+        return [], norms, modus
 
     # 先算每院占地：w 沿 X（面阔），d 沿 Z（进深）
     plotted = []
-    for idx, c in enumerate(courtyards):
+    for c in courtyards:
         enc = c.get("enclosure", {})
         north, south, east, west = enc.get("north"), enc.get("south"), enc.get("east"), enc.get("west")
         ref = north or south or {}
         w = _dim(ref, "miankuo", 5) * modus
-        north_depth = _dim(north, "jinshen", 0) * modus   # 缺房则进深记 0（无幽灵进深）
-        south_depth = _dim(south, "jinshen", 0) * modus
+        nd = _dim(north, "jinshen", 0) * modus   # 缺房则进深记 0（无幽灵进深）
+        sd = _dim(south, "jinshen", 0) * modus
         cdr = norms.get("courtDepthRatio", 0.6)
         if isinstance(cdr, dict):
             role = c.get("role")
@@ -281,19 +288,32 @@ def compute_geometry(instance):
         else:
             ratio = cdr
         court_depth = w * ratio   # 露天院落进深=面阔×按角色比例(front浅/main大/back中)
-        d = north_depth + court_depth + south_depth
-        plotted.append({"w": w, "d": d, "north": north, "south": south,
+        d = nd + court_depth + sd
+        plotted.append({"w": w, "d": d, "nd": nd, "sd": sd, "north": north, "south": south,
                         "east": east, "west": west, "c": c})
 
-    gap = 0.0                                      # 院落间紧贴：各院独立围墙，双墙相邻无间隙
-    total = sum(p["d"] for p in plotted) + gap * max(n - 1, 0)
+    total = sum(p["d"] for p in plotted)           # 院落间紧贴：双墙相邻无间隙(gap=0)
     z = -total / 2                                 # 序列1=最南(-Z)，序列N=最北(+Z)
+    for p in plotted:
+        p["zc"] = z + p["d"] / 2
+        z += p["d"]
+    return plotted, norms, modus
+
+
+def compute_geometry(instance):
+    """④ 几何计算：instance -> 构件列表。每个构件 = {role, center:{x,y,z}, size:{w,h,d}}。
+
+    - 只读 instance（data + appliedRules）；MODUS 从 appliedRules.norms 取。
+    - 输出是构件（连续几何），不是 box、不是空间。庭院虚空不输出。
+    """
+    plotted, norms, modus = _layout(instance)
+    if not plotted:
+        return []
     geometry = []
     for idx, p in enumerate(plotted):
-        zc = z + p["d"] / 2
+        zc = p["zc"]
         w, d = p["w"], p["d"]
-        nd = _dim(p["north"], "jinshen", 0) * modus
-        sd = _dim(p["south"], "jinshen", 0) * modus
+        nd, sd = p["nd"], p["sd"]
 
         if p["north"]:
             nrole = p["north"]
@@ -341,9 +361,87 @@ def compute_geometry(instance):
         if p["c"].get("perimeter"):
             geometry.extend(_geo_wall_ring(p["c"], w, zc, d, norms, draw_south=(idx == 0)))
 
-        z += p["d"] + gap
     # 边界去重：同一条墙线上建筑墙优先于独立院墙(yuanqiang)，被覆盖的院墙段按区间相减掉。
     return _resolve_boundary(geometry)
+
+
+def build_tour_path(instance, comps=None):
+    """④ 布局 + 实际构件坐标 -> 游览路线 DATA（实时派生，不落盘、不进图谱、不回灌 ④/⑤）。
+
+    语义骨架取自实例图谱（每院南/北界是谁、有无门、北房是不是穿堂），坐标取自 ④ 几何
+    （_layout 的院深/院心 + 实际构件里的宅门门道中心）。故进数 1/2/3/4 自适应——
+    不存在「按三进写死」导致的越界、穿不存在的门、走进不存在的房子。
+
+    统一模板（逐院）：进院门 -> 庭心驻足 -> 出下道门；首院北门后补「折向中轴」（宅门在
+    东南角、不在中轴），末院北面无门，止于北房之前、回望来路收尾。
+
+    返回 [{x, y, z, label, pause?, look?}]，与 ⑤ 体素 BOX 同源坐标（米，Y-up）。
+    """
+    plotted, _norms, _modus = _layout(instance)
+    if not plotted:
+        return []
+
+    # 宅门在东南角、不在中轴：门道中心 x 直接取实际构件里 zhaimen 的中心（避免公式两处实现漂移）
+    gxs = [g.get("center", {}).get("x", 0.0)
+           for g in (comps or []) if g.get("role") == "zhaimen"]
+    gate_x = round((min(gxs) + max(gxs)) / 2.0, 3) if gxs else 0.0
+
+    path = []
+    last = len(plotted) - 1
+    for i, p in enumerate(plotted):
+        zc, d, nd, sd = p["zc"], p["d"], p["nd"], p["sd"]
+        enc = p["c"].get("enclosure", {}) or {}
+        name = p["c"].get("name") or f"第{i + 1}进"
+        z_north = zc + d / 2
+        z_south = zc - d / 2
+        z_court = zc + (sd - nd) / 2.0        # 露天庭院中心（与 ④ 厢房的 ew_z 同源）
+
+        # —— 进院门：穿过本院的南界（首院=东南角宅门；余院=上一院北界的垂花门/穿堂）——
+        if i == 0:
+            if (enc.get("south") or {}).get("gate"):
+                gz = z_south + sd / 2.0                    # 宅门门道轴线（嵌在倒座房进深内）
+                path.append({"x": gate_x, "z": round(z_south - TOUR_OUTSIDE, 3),
+                             "y": 0.0, "label": "宅门外"})
+                path.append({"x": gate_x, "z": round(gz, 3), "y": TOUR_STEP, "label": "穿过大门"})
+                z_in = z_south + sd + 0.6                  # 出倒座后檐入庭院，且避开影壁/厢房之南
+                path.append({"x": gate_x, "z": round(z_in, 3), "y": 0.0,
+                             "label": f"进入{name}"})
+                if abs(gate_x) > 0.01:                     # 宅门偏东南，需横向折回中轴
+                    path.append({"x": 0.0, "z": round(z_in, 3), "y": 0.0, "label": "折向中轴"})
+            else:
+                path.append({"x": 0.0, "z": round(z_south - TOUR_OUTSIDE, 3), "y": 0.0,
+                             "label": f"进入{name}"})
+
+        # —— 庭心驻足：立于中轴，回看西厢 ——
+        path.append({"x": 0.0, "z": round(z_court, 3), "y": 0.0,
+                     "label": f"{name}庭心", "pause": TOUR_PAUSE,
+                     "look": [round(-p["w"] / 2.0, 3), round(z_court, 3)]})
+
+        # —— 出下道门：由本院北界进入下一院；末院北面无门，止于北房之前 ——
+        if i == last:
+            nlabel = ROLE_LABELS.get((p["north"] or {}).get("role"), "院北")
+            z_stop = z_north - nd - 1.2 if nd > 0 else z_north - 1.2
+            path.append({"x": 0.0, "z": round(z_stop, 3), "y": 0.0, "label": f"{nlabel}前",
+                         "pause": TOUR_PAUSE, "look": [0.0, round(z_north, 3)]})
+            path.append({"x": 0.0, "z": round(z_stop + 0.7, 3), "y": 0.0, "label": "游毕",
+                         "pause": TOUR_END_PAUSE, "look": [0.0, round(z_court, 3)]})
+        elif enc.get("northGate"):
+            path.append({"x": 0.0, "z": round(z_north - TOUR_DOOR_DEPTH_HALF, 3), "y": 0.0,
+                         "label": "垂花门前", "pause": TOUR_PAUSE,
+                         "look": [0.0, round(z_north + 2.0, 3)]})
+            path.append({"x": 0.0, "z": round(z_north, 3), "y": TOUR_STEP, "label": "穿过垂花门"})
+        elif (p["north"] or {}).get("chuantang"):
+            path.append({"x": 0.0, "z": round(z_north - nd, 3), "y": TOUR_STEP,
+                         "label": "正房前檐"})
+            path.append({"x": 0.0, "z": round(z_north - nd / 2.0, 3), "y": TOUR_STEP,
+                         "label": "穿过正房穿堂"})
+            path.append({"x": 0.0, "z": round(z_north, 3), "y": TOUR_STEP,
+                         "label": "穿堂北口"})
+        else:
+            path.append({"x": 0.0, "z": round(z_north - TOUR_DOOR_DEPTH_HALF, 3), "y": 0.0,
+                         "label": "院北门前"})
+            path.append({"x": 0.0, "z": round(z_north, 3), "y": TOUR_STEP, "label": "穿过院北门"})
+    return path
 
 
 def _geo_slab(role, cx, cy, cz, w, h, d):

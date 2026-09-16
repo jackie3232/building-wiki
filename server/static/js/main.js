@@ -63,6 +63,7 @@ function clearBoxes() {
 let voxMesh = null;
 let voxEdges = null;
 let grow = null;                       // 渐进式生长状态：{ total, start, duration }
+let currentGraph = null;               // 场上场景所依据的实例图谱（后端随响应回传，游览时原样带回）
 const EDGE_VERTS_PER_BOX = 24;        // 与 addBoxEdges 中 tmpl 顶点数(12条边×2点)一致
 
 function addBoxes(boxes) {
@@ -227,14 +228,17 @@ function setStatus(msg, busy = false) {
 async function renderResponse(data) {
   if (data.action === "clear") {
     if (data.source === "error") { setStatus(`出错了：${data.error || ""}`); return; }
-    exitTour(); clearBoxes(); setStatus("场景已清空"); return;  }
+    exitTour(); clearBoxes(); currentGraph = null; setStatus("场景已清空"); return;  }
   if (data.action === "tour") {
-    // 游览意图：场上已有模型就直接巡游；没有则先用返回的几何建起来
-    if (!voxMesh && Array.isArray(data.boxes)) addBoxes(data.boxes);
+    // 路线由后端按「本次这张图谱」派生；前端只负责把图谱带过去，不重建模型
+    if (data.graph) currentGraph = data.graph;
+    if (Array.isArray(data.route) && data.route.length >= 2) tourPath = data.route;
+    if (!voxMesh && Array.isArray(data.boxes)) addBoxes(data.boxes);   // 场上没模型才需要建
     enterTour();
     return;
   }
   if (Array.isArray(data.boxes)) {
+    if (data.graph) currentGraph = data.graph;   // 记住场景来源，供后续游览带回
     addBoxes(data.boxes);   // 渐进式生长：状态由 addBoxes 启动、animate 在增长完成时收尾
     return;
   }
@@ -267,8 +271,11 @@ async function sendCommand() {
     try { await postCommand({ graph: JSON.parse(text) }); inputEl.value = ""; return; }
     catch (e) { setStatus("以 { 开头但不是合法 JSON，按文本处理"); }
   }
-  await postCommand({ text });
   inputEl.value = "";
+  if (!TOUR_WORDS.some((w) => text.includes(w))) { await postCommand({ text }); return; }
+  // 游览：场上已有场景时，把「这张图谱」原样带回 —— 绝不让后端拿「游览」二字重新解析进数，
+  // 否则会退化成默认进数（一进场景配三进路线，人走到空地上）。
+  await postCommand(currentGraph ? { text, tour: true, graph: currentGraph } : { text, tour: true });
 }
 
 const uploadBtn = document.getElementById("btn-upload");
@@ -288,11 +295,13 @@ fileInput.addEventListener("change", (e) => {
 
 sendEl.addEventListener("click", sendCommand);
 inputEl.addEventListener("keydown", (e) => { if (e.key === "Enter") sendCommand(); });
-clearBtn.addEventListener("click", () => { clearBoxes(); setStatus("场景已清空"); });
+clearBtn.addEventListener("click", () => { clearBoxes(); currentGraph = null; setStatus("场景已清空"); });
 
 /* ---------------- 游览模式：第三人称自动巡游 ---------------- */
-// 方块小人沿既定路径走完三进院落，相机吊在其后上方跟随，遇实体自动拉近。
-// 路径点的 y = 落脚面高度（院面 0 / 台基 0.30），由离线可行走性扫描确定。
+// 方块小人沿后端派生的路线走完全院，相机吊在其后上方跟随，遇实体自动拉近。
+// 路线不是前端常量：由后端「实例图谱 + ④ 几何实算坐标」实时派生随响应下发（data.route），
+// 故 1/2/3/4 进自适应，不会出现「按三进写死」导致的越界或穿不存在的门。
+// 每个路径点的 y = 落脚面高度（院面 0 / 台基 0.30）。
 
 const WALK_SPEED = 1.55;      // 步行速度 m/s
 const CAM_BACK   = 3.60;      // 相机在小人后方的水平距离
@@ -300,23 +309,10 @@ const CAM_UP     = 2.00;      // 相机离地高度
 const CAM_ANCHOR = 1.30;      // 视线锚点（小人胸肩）高度
 const TURN_K     = 6.00;      // 转向平滑系数
 
-const TOUR_PATH = [
-  { x:  6.00, z: -20.50, y: 0.00, label: "宅门外" },
-  { x:  6.00, z: -16.60, y: 0.30, label: "穿过大门" },
-  { x:  6.00, z: -13.60, y: 0.00, label: "进入一进院" },
-  { x:  0.00, z: -12.40, y: 0.00, label: "折向中轴" },
-  { x:  0.00, z: -10.70, y: 0.00, label: "垂花门前", pause: 1.4, look: [0, -7.6] },
-  { x:  0.00, z:  -9.40, y: 0.30, label: "穿过垂花门" },
-  { x:  0.00, z:  -8.20, y: 0.00, label: "二进院" },
-  { x:  0.00, z:  -4.00, y: 0.00, label: "二进院庭心", pause: 1.8, look: [-6.8, -4.0] },
-  { x:  0.00, z:   0.00, y: 0.00, label: "穿过游廊" },
-  { x:  0.00, z:   1.20, y: 0.30, label: "正房穿堂" },
-  { x:  0.00, z:   6.60, y: 0.30, label: "穿堂北口" },
-  { x:  0.00, z:   7.70, y: 0.00, label: "三进院" },
-  { x:  0.00, z:  12.00, y: 0.00, label: "三进院庭心", pause: 1.8, look: [0, 17.2] },
-  { x:  0.00, z:  14.60, y: 0.30, label: "后罩房" },
-  { x:  0.00, z:  17.40, y: 0.30, label: "游毕", pause: 2.4, look: [0, 9.0] },
-];
+// 游览意图判定属 UI 语义，此表是唯一来源；后端只认 body.tour 标记，不重复维护关键词表
+const TOUR_WORDS = ["游览", "浏览", "参观", "观光", "逛"];
+
+let tourPath = [];            // 本轮巡游使用的路线（由 data.route 填充）
 
 /* 方块小人：Minecraft 风格六件套（头/发/躯干/双臂/双腿），肢体以关节为轴心便于摆动 */
 function makeTourist() {
@@ -419,10 +415,11 @@ function finishGrow() {                 // 进游览前把"生长动画"一次�
 
 function enterTour() {
   if (!voxMesh) { setStatus("先生成一座院子，再输入「开始游览」"); return; }
+  if (!tourPath || tourPath.length < 2) { setStatus("未取到巡游路线，请重新生成院落"); return; }
   finishGrow();
   buildOccupancy(voxMesh.userData.boxes);
 
-  const p0 = TOUR_PATH[0], p1 = TOUR_PATH[1];
+  const p0 = tourPath[0], p1 = tourPath[1];
   tour.active = true; tour.i = 0; tour.t = 0; tour.phase = 0;
   tour.pauseLeft = p0.pause || 0;
   tour.yaw = Math.atan2(p1.x - p0.x, p1.z - p0.z);
@@ -473,7 +470,7 @@ function applyTourCamera(dt) {
 }
 
 function updateTour(dt) {
-  const path = TOUR_PATH;
+  const path = tourPath;
   const last = path[path.length - 1];
 
   if (tour.i >= path.length - 1) {                              // 末点：留驻并回望
