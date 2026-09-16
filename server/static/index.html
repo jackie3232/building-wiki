@@ -29,7 +29,7 @@
     <button id="btn-upload" type="button">⬆ 上传图谱 JSON</button>
     <input id="graph-file" type="file" accept=".json,application/json" hidden />
   </div>
-  <div id="hint" data-page-node-id="cnQZKF5CwNZ7PEdezYXBgH">回车发送&ensp;·&ensp;试试「帮我建个三进四合院」&ensp;·&ensp;点选构件看名称&ensp;·&ensp;或上传 / 粘贴实例图谱 JSON</div>
+  <div id="hint" data-page-node-id="cnQZKF5CwNZ7PEdezYXBgH">回车发送&ensp;·&ensp;试「帮我建个三进四合院」&ensp;·&ensp;「游览」巡游&ensp;·&ensp;「查看图谱」看实例图谱&ensp;·&ensp;或上传 / 粘贴图谱 JSON</div>
 </div>
 
 <button id="btn-clear" title="清空场景" data-page-node-id="Kr7NsojdyD0QoYeFWrh8X6">清空</button>
@@ -38,6 +38,15 @@
   <div id="tour-label"></div>
   <div id="tour-tip">第三人称自动巡游 · 自南向北沿中轴穿院游览</div>
   <button id="btn-exit-tour" type="button">退出游览（Esc）</button>
+</div>
+
+<div id="graph-view">
+  <div id="graph-head">
+    <div id="graph-title"></div>
+    <button id="btn-exit-graph" type="button">返回模型（Esc）</button>
+  </div>
+  <div id="graph-canvas"></div>
+  <div id="graph-legend"></div>
 </div>
 
 <script type="module" src="/static/js/main.js"></script>

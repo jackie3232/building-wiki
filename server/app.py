@@ -18,6 +18,9 @@ BUILDING.WIKI · MVP 服务（重构版）
   JSON {action:"model", boxes:[...], graph:{...}}
   游览（body.tour=true）时额外附 route:[{x,y,z,label,pause,look}]（由图谱+④坐标实时派生，不落盘）
   响应回传的 graph = 本次场景所依据的实例图谱；前端下次游览原样带回，保证 route 与 BOX 同源。
+  同一张 graph 也是「查看图谱」视图的数据源（前端渲染成节点-边关系图，纯展示、不落盘）。
+
+  GET /api/dict  -> 命名字典（role -> 中文名/释义），图谱视图据此显示标签，前端不硬编词表。
 
 零依赖（仅 Python 标准库 http.server），可直接 `python server/app.py` 本地跑，
 也可在 CloudBase CloudRun 以 $PORT 启动（已兼容）。
@@ -35,6 +38,7 @@ from engine.geometry import (  # noqa: E402
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(BASE, "static")
+KNOWLEDGE = os.path.join(BASE, "knowledge")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -63,6 +67,11 @@ class Handler(BaseHTTPRequestHandler):
         p = urlparse(self.path).path
         if p in ("/", ""):
             return self._serve_file(os.path.join(STATIC, "index.html"), "text/html; charset=utf-8")
+        if p == "/api/dict":
+            # 命名字典（role -> 中文名/释义）：LLM 的唯一合法词表，也供图谱视图取标签。
+            # 刻意不由前端硬编 —— 词表属图谱模块，随图谱一起演进，两处维护必然漂移。
+            return self._serve_file(os.path.join(KNOWLEDGE, "dict.json"),
+                                    "application/json; charset=utf-8")
         if p.startswith("/static/"):
             fp = os.path.normpath(os.path.join(STATIC, p[len("/static/"):]))
             if fp.startswith(STATIC) and os.path.isfile(fp):

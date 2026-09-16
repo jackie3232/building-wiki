@@ -2,6 +2,7 @@
 // 链路：NL/图谱 -> /api/command -> {action:"model", boxes:[...]} -> Three.js 体素
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { enterGraphView, exitGraphView } from "./graph/index.js";
 
 /* ---------------- 场景基础 ---------------- */
 const container = document.getElementById("scene-container");
@@ -238,6 +239,10 @@ const sendEl = document.getElementById("cmd-send");
 const statusEl = document.getElementById("hud-status");
 const clearBtn = document.getElementById("btn-clear");
 
+// 「查看图谱」触发词。属 UI 语义，前端是唯一来源 —— 图谱视图是纯前端渲染
+// （数据就是 currentGraph），不起后端请求，故后端不需要也不认识这些词。
+const GRAPH_WORDS = ["查看图谱", "看图谱", "关系图", "图谱", "graph"];
+
 let statusTimer = null;
 function setStatus(msg, busy = false) {
   statusEl.textContent = msg || "";
@@ -294,6 +299,14 @@ async function sendCommand() {
     catch (e) { setStatus("以 { 开头但不是合法 JSON，按文本处理"); }
   }
   inputEl.value = "";
+  // 查看图谱：纯展示层动作、数据已在手（currentGraph），不起后端请求。
+  // 与游览同源 —— 展示的必须是「当前场上场景所依据的那张图谱」，不是重新解析指令文本。
+  if (GRAPH_WORDS.some((w) => text.includes(w))) {
+    if (!currentGraph) { setStatus("先生成一座院落，再输入「查看图谱」"); return; }
+    const ok = await enterGraphView(currentGraph);
+    setStatus(ok ? "已切换到实例图谱视图" : "图谱渲染失败");
+    return;
+  }
   if (!TOUR_WORDS.some((w) => text.includes(w))) { await postCommand({ text }); return; }
   // 游览：场上已有场景时，把「这张图谱」原样带回 —— 绝不让后端拿「游览」二字重新解析进数，
   // 否则会退化成默认进数（一进场景配三进路线，人走到空地上）。
@@ -577,7 +590,11 @@ function updateTour(dt) {
 }
 
 if (exitTourBtn) exitTourBtn.addEventListener("click", exitTour);
-addEventListener("keydown", (e) => { if (e.key === "Escape" && tour.active) exitTour(); });
+addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (exitGraphView()) return;                  // 图谱视图优先返回（返回 false 表示当前不在图谱视图）
+  if (tour.active) exitTour();
+});
 
 /* ---------------- 渲染循环 ---------------- */
 addEventListener("resize", () => {
