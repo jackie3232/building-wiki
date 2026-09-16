@@ -24,6 +24,7 @@
 - ⑤ 只做造型策略（MVP = 无 B-rep 的 BOX 体素），未来可切 Box/Brep 等基元，不污染 ④。
 """
 import json
+import math
 import os
 import re
 
@@ -50,6 +51,8 @@ TOUR_STEP = 0.30              # 台基面高度：穿门/穿堂时的落脚面�
 TOUR_PAUSE = 1.6              # 庭心驻足时长（秒）
 TOUR_END_PAUSE = 2.4          # 终点回望时长（秒）
 TOUR_DOOR_DEPTH_HALF = 0.6    # 穿门点距门体中心的纵向偏移，使落点落在门道内而非墙面（米）
+TOUR_CORNER_R = 0.80          # 拐点过渡半径：宅门在东南角，把直角的两次 90° 硬折拆成 45°+45°（米）
+TOUR_LOOK_DEG = 35            # 驻足"轻扫一眼"的偏转角（度，负=偏西）；替代原先甩头 90°/掉头 180°
 
 # 体素边长（米）。越小越细、box 越多；越大越省、体素感越弱。MVP 提速版适中取值。
 VOXEL_SIZE = 0.6
@@ -365,6 +368,16 @@ def compute_geometry(instance):
     return _resolve_boundary(geometry)
 
 
+def _glance(px, pz, heading, deg, dist):
+    """驻足"轻扫一眼"的看点：自行进方向偏转 deg 度、取 dist 距离处的点（负=偏西，正=偏东）。
+
+    它是**展示层**的落位，不进图谱、不回灌 ④/⑤。原先的 look 直接指向构件中心（西厢/来路），
+    等于每次驻足甩头 90°、末点掉头 180°；偏转后镜头只小幅侧移。
+    """
+    a = heading + math.radians(deg)
+    return [round(px + math.sin(a) * dist, 3), round(pz + math.cos(a) * dist, 3)]
+
+
 def build_tour_path(instance, comps=None):
     """④ 布局 + 实际构件坐标 -> 游览路线 DATA（实时派生，不落盘、不进图谱、不回灌 ④/⑤）。
 
@@ -404,18 +417,30 @@ def build_tour_path(instance, comps=None):
                              "y": 0.0, "label": "宅门外"})
                 path.append({"x": gate_x, "z": round(gz, 3), "y": TOUR_STEP, "label": "穿过大门"})
                 z_in = z_south + sd + 0.6                  # 出倒座后檐入庭院，且避开影壁/厢房之南
-                path.append({"x": gate_x, "z": round(z_in, 3), "y": 0.0,
-                             "label": f"进入{name}"})
-                if abs(gate_x) > 0.01:                     # 宅门偏东南，需横向折回中轴
-                    path.append({"x": 0.0, "z": round(z_in, 3), "y": 0.0, "label": "折向中轴"})
+                r = min(TOUR_CORNER_R, z_court - z_in - 0.45)   # 过渡半径受院深受限（外院很浅时会收小）
+                if abs(gate_x) > 0.01 and r >= 0.25:       # 宅门偏东南，需横向折回中轴
+                    # 只切「中轴」那个拐点：门后那个 90° 转没有余量可切——影壁正对宅门，
+                    # 倒座房北檐与影壁南面之间只有约 0.95m 走道，往里切就退回门道/影壁里。
+                    # 过渡点属坐标层，不进图谱、不标站名。
+                    path.append({"x": gate_x, "z": round(z_in, 3), "y": 0.0,
+                                 "label": f"进入{name}"})
+                    path.append({"x": round(r, 3), "z": round(z_in, 3), "y": 0.0})
+                    path.append({"x": 0.0, "z": round(z_in + r, 3), "y": 0.0, "label": "折向中轴"})
+                else:
+                    path.append({"x": gate_x, "z": round(z_in, 3), "y": 0.0,
+                                 "label": f"进入{name}"})
+                    if abs(gate_x) > 0.01:
+                        path.append({"x": 0.0, "z": round(z_in, 3), "y": 0.0, "label": "折向中轴"})
             else:
                 path.append({"x": 0.0, "z": round(z_south - TOUR_OUTSIDE, 3), "y": 0.0,
                              "label": f"进入{name}"})
 
-        # —— 庭心驻足：立于中轴，回看西厢 ——
+        # —— 庭心驻足：沿行进方向偏西轻扫一眼（不再朝西厢甩头 90°）——
+        prev = path[-1]
+        hdg = math.atan2(0.0 - prev["x"], z_court - prev["z"])
         path.append({"x": 0.0, "z": round(z_court, 3), "y": 0.0,
                      "label": f"{name}庭心", "pause": TOUR_PAUSE,
-                     "look": [round(-p["w"] / 2.0, 3), round(z_court, 3)]})
+                     "look": _glance(0.0, z_court, hdg, -TOUR_LOOK_DEG, p["w"] / 2.0)})
 
         # —— 出下道门：由本院北界进入下一院；末院北面无门，止于北房之前 ——
         if i == last:
@@ -424,7 +449,8 @@ def build_tour_path(instance, comps=None):
             path.append({"x": 0.0, "z": round(z_stop, 3), "y": 0.0, "label": f"{nlabel}前",
                          "pause": TOUR_PAUSE, "look": [0.0, round(z_north, 3)]})
             path.append({"x": 0.0, "z": round(z_stop + 0.7, 3), "y": 0.0, "label": "游毕",
-                         "pause": TOUR_END_PAUSE, "look": [0.0, round(z_court, 3)]})
+                         "pause": TOUR_END_PAUSE,
+                         "look": _glance(0.0, z_stop + 0.7, 0.0, +TOUR_LOOK_DEG, p["w"] / 2.0)})
         elif enc.get("northGate"):
             path.append({"x": 0.0, "z": round(z_north - TOUR_DOOR_DEPTH_HALF, 3), "y": 0.0,
                          "label": "垂花门前", "pause": TOUR_PAUSE,

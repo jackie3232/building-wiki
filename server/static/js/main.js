@@ -308,6 +308,8 @@ const CAM_BACK   = 3.60;      // 相机在小人后方的水平距离
 const CAM_UP     = 2.00;      // 相机离地高度
 const CAM_ANCHOR = 1.30;      // 视线锚点（小人胸肩）高度
 const TURN_K     = 6.00;      // 转向平滑系数
+const CAM_BOOM   = Math.hypot(CAM_BACK, CAM_UP - CAM_ANCHOR);  // 吊臂全长（锚点→理想机位）
+const CAM_TURN_MAX = 2.4;     // 相机吊臂最大角速度 rad/s（≈137°/s），限制急转时的扫镜速率
 
 // 游览意图判定属 UI 语义，此表是唯一来源；后端只认 body.tour 标记，不重复维护关键词表
 const TOUR_WORDS = ["游览", "浏览", "参观", "观光", "逛"];
@@ -394,7 +396,8 @@ function occAt(x, y, z) {
   return occ.g[(k * occ.nz + j) * occ.nx + i] === 1;
 }
 
-const tour = { active: false, i: 0, t: 0, pauseLeft: 0, yaw: 0, phase: 0 };
+// camYaw = 相机吊臂方向，独立于人物 yaw 且更慢，用来消除急转时的镜头猛甩
+const tour = { active: false, i: 0, t: 0, pauseLeft: 0, yaw: 0, camYaw: 0, camDist: 0, phase: 0 };
 const tourLabelEl = document.getElementById("tour-label");
 const exitTourBtn = document.getElementById("btn-exit-tour");
 
@@ -423,6 +426,8 @@ function enterTour() {
   tour.active = true; tour.i = 0; tour.t = 0; tour.phase = 0;
   tour.pauseLeft = p0.pause || 0;
   tour.yaw = Math.atan2(p1.x - p0.x, p1.z - p0.z);
+  tour.camYaw = tour.yaw;
+  tour.camDist = CAM_BOOM;
 
   tourist.visible = true;
   tourist.position.set(p0.x, p0.y, p0.z);
@@ -448,24 +453,43 @@ function exitTour() {
   setStatus("已退出游览");
 }
 
+/* 相机跟随（第三人称吊臂）。三个关键点，逐一对应此前实测到的穿墙/抖动：
+   ① 吊臂方向用独立的 camYaw（比人物 TURN_K 更慢），拐角时镜头平滑扫过而非随人猛甩；
+   ② 沿吊臂向外逐格采样求「最远空位」dTgt，相机距离只在 [0, dTgt] 内平滑 —— 位置恒落在
+      无遮挡段内，因此任何一帧都不可能落在实体里（旧版把 back 硬夹到 0.5，等于在墙里
+      强行摆一台相机，实测入墙 33~269 帧、内院连续 70 帧）；
+   ③ 距离"收快放慢"，且硬夹不超过 dTgt：进门洞时不至于弹来弹去，沿墙走时也不会抖。 */
 function applyTourCamera(dt) {
-  const p = tourist.position;
-  const fx = Math.sin(tour.yaw), fz = Math.cos(tour.yaw);        // 前进方向
-  const ax = p.x, ay = p.y + CAM_ANCHOR, az = p.z;               // 视线锚点
-  const ix = p.x - fx * CAM_BACK, iy = p.y + CAM_UP, iz = p.z - fz * CAM_BACK;
+  // 吊臂转向：指数跟随 + 角速度上限。若只做指数跟随，yaw 突变时吊臂会一帧扫过大角度，
+  // 使「最远空位」dTgt 骤降、被硬夹成一帧 3m 级硬切（实测末点回望处 3.21m）。
+  // 限速后 dTgt 逐帧缓变，收镜变成连续的一段而非一刀。
+  const want = lerpAngle(tour.camYaw, tour.yaw, 1 - Math.exp(-4.5 * dt));
+  const cap = CAM_TURN_MAX * dt;
+  tour.camYaw += Math.max(-cap, Math.min(cap, want - tour.camYaw));
 
-  // 沿「锚点 → 理想机位」采样，遇实体则拉近，防止相机穿墙/穿屋顶
-  let bx = ix, by = iy, bz = iz;
-  const N = 12;
+  const p = tourist.position;
+  const fx = Math.sin(tour.camYaw), fz = Math.cos(tour.camYaw);
+  const ax = p.x, ay = p.y + CAM_ANCHOR, az = p.z;                       // 视线锚点
+  const rise = CAM_UP - CAM_ANCHOR;
+
+  let t = 0;                                                             // 最远空位比例
+  const N = 16;
   for (let s = 1; s <= N; s++) {
-    const tt = s / N;
-    if (occAt(ax + (ix - ax) * tt, ay + (iy - ay) * tt, az + (iz - az) * tt)) {
-      const back = Math.max(0.5, (s - 1) / N);
-      bx = ax + (ix - ax) * back; by = ay + (iy - ay) * back; bz = az + (iz - az) * back;
-      break;
-    }
+    const k = s / N;
+    if (occAt(ax - fx * CAM_BACK * k, ay + rise * k, az - fz * CAM_BACK * k)) break;
+    t = k;
   }
-  camera.position.lerp(new THREE.Vector3(bx, by, bz), 1 - Math.exp(-10 * dt));
+  const dTgt = t * CAM_BOOM;                                             // 目标机位距锚点
+
+  const kPull = dTgt < tour.camDist ? (1 - Math.exp(-18 * dt))           // 收：快
+                                    : (1 - Math.exp(-6 * dt));           // 放：慢
+  tour.camDist += (dTgt - tour.camDist) * kPull;
+  if (tour.camDist > dTgt) tour.camDist = dTgt;                          // 绝不越过遮挡面
+  if (tour.camDist < 0) tour.camDist = 0;
+
+  const u = tour.camDist / CAM_BOOM;
+  camera.position.set(ax - fx * CAM_BACK * u, ay + rise * u, az - fz * CAM_BACK * u);
+  tourist.visible = tour.camDist > 1.05;                                 // 贴太近时藏起人物
   camera.lookAt(ax + fx * 1.3, ay + 0.12, az + fz * 1.3);
 }
 
@@ -482,7 +506,7 @@ function updateTour(dt) {
     return applyTourCamera(dt);
   }
 
-  const a = path[tour.i], b = path[tour.i + 1];
+  let a = path[tour.i], b = path[tour.i + 1];
 
   if (tour.pauseLeft > 0) {                                     // 驻足：转头看点
     tour.pauseLeft -= dt;
@@ -495,13 +519,25 @@ function updateTour(dt) {
     const segLen = Math.max(Math.hypot(b.x - a.x, b.z - a.z), 1e-6);
     const speed = Math.abs(b.y - a.y) > 0.01 ? WALK_SPEED * 0.75 : WALK_SPEED;  // 上下台阶略慢
     tour.t += (speed * dt) / segLen;
-    if (tour.t >= 1) {
-      tour.t = 0;
-      tour.i++;
+    // 到站即推进下标、并把段内进度按整段折算(t-=1)；
+    // 修：此前 i++ 后仍拿「旧的 a/b + t=0」算位置，等于每过一个路径点把小人打回整段起点
+    // （实测 5.99m 回跳，正好是「折向中轴」那段长度）。跨段后必须重取 a/b 再算位置。
+    while (tour.t >= 1 && tour.i < path.length - 1) {
+      tour.t -= 1;
+      tour.i += 1;
       const np = path[tour.i];
       tour.pauseLeft = np.pause || 0;
-      if (tourLabelEl) tourLabelEl.textContent = np.label || "";
+      // 过渡点（坐标层，无站名）不清空站名，沿用上一站，避免标签闪断
+      if (tourLabelEl && np.label) tourLabelEl.textContent = np.label;
+      if (tour.i >= path.length - 1 || tour.pauseLeft > 0) { tour.t = 0; break; }
     }
+    if (tour.i >= path.length - 1) {                            // 已抵达末点：交给末点分支
+      const e = path[path.length - 1];
+      tourist.position.set(e.x, e.y, e.z);
+      tourist.rotation.y = tour.yaw;
+      return applyTourCamera(dt);
+    }
+    a = path[tour.i]; b = path[tour.i + 1];
     tourist.position.set(
       a.x + (b.x - a.x) * tour.t,
       a.y + (b.y - a.y) * tour.t,
