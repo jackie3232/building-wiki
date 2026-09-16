@@ -32,6 +32,9 @@ from engine.geometry import instance_to_boxes, text_to_instance  # noqa: E402
 BASE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(BASE, "static")
 
+# 游览意图关键词：命中则回 action="tour"，前端切换为自动巡游模式（几何不变，仅展示模式切换）
+TOUR_WORDS = ("游览", "浏览", "参观", "观光", "逛")
+
 
 class Handler(BaseHTTPRequestHandler):
     timeout = 15                      # 半开/闲置连接不占死线程（单线程版曾因此卡死）
@@ -79,17 +82,19 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             body = {}
 
+        text = body.get("text", "")
         if "graph" in body:
             inst = body["graph"]
         else:
-            inst = text_to_instance(body.get("text", ""))
+            inst = text_to_instance(text)
 
         try:
             boxes = instance_to_boxes(inst)
         except Exception as e:
             return self._send(200, json.dumps(
                 {"action": "clear", "source": "error", "error": str(e)}, ensure_ascii=False))
-        self._send(200, json.dumps({"action": "model", "boxes": boxes}, ensure_ascii=False))
+        action = "tour" if any(w in text for w in TOUR_WORDS) else "model"
+        self._send(200, json.dumps({"action": action, "boxes": boxes}, ensure_ascii=False))
 
     def log_message(self, *a):
         pass

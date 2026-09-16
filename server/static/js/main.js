@@ -44,6 +44,7 @@ const boxRoot = new THREE.Group();
 scene.add(boxRoot);
 
 function clearBoxes() {
+  exitTour();                     // 巡游中清空场景 => 先停止巡游
   grow = null;
   if (voxMesh) {
     boxRoot.remove(voxMesh);
@@ -226,7 +227,12 @@ function setStatus(msg, busy = false) {
 async function renderResponse(data) {
   if (data.action === "clear") {
     if (data.source === "error") { setStatus(`出错了：${data.error || ""}`); return; }
-    clearBoxes(); setStatus("场景已清空"); return;
+    exitTour(); clearBoxes(); setStatus("场景已清空"); return;  }
+  if (data.action === "tour") {
+    // 游览意图：场上已有模型就直接巡游；没有则先用返回的几何建起来
+    if (!voxMesh && Array.isArray(data.boxes)) addBoxes(data.boxes);
+    enterTour();
+    return;
   }
   if (Array.isArray(data.boxes)) {
     addBoxes(data.boxes);   // 渐进式生长：状态由 addBoxes 启动、animate 在增长完成时收尾
@@ -284,6 +290,242 @@ sendEl.addEventListener("click", sendCommand);
 inputEl.addEventListener("keydown", (e) => { if (e.key === "Enter") sendCommand(); });
 clearBtn.addEventListener("click", () => { clearBoxes(); setStatus("场景已清空"); });
 
+/* ---------------- 游览模式：第三人称自动巡游 ---------------- */
+// 方块小人沿既定路径走完三进院落，相机吊在其后上方跟随，遇实体自动拉近。
+// 路径点的 y = 落脚面高度（院面 0 / 台基 0.30），由离线可行走性扫描确定。
+
+const WALK_SPEED = 1.55;      // 步行速度 m/s
+const CAM_BACK   = 3.60;      // 相机在小人后方的水平距离
+const CAM_UP     = 2.00;      // 相机离地高度
+const CAM_ANCHOR = 1.30;      // 视线锚点（小人胸肩）高度
+const TURN_K     = 6.00;      // 转向平滑系数
+
+const TOUR_PATH = [
+  { x:  6.00, z: -20.50, y: 0.00, label: "宅门外" },
+  { x:  6.00, z: -16.60, y: 0.30, label: "穿过大门" },
+  { x:  6.00, z: -13.60, y: 0.00, label: "进入一进院" },
+  { x:  0.00, z: -12.40, y: 0.00, label: "折向中轴" },
+  { x:  0.00, z: -10.70, y: 0.00, label: "垂花门前", pause: 1.4, look: [0, -7.6] },
+  { x:  0.00, z:  -9.40, y: 0.30, label: "穿过垂花门" },
+  { x:  0.00, z:  -8.20, y: 0.00, label: "二进院" },
+  { x:  0.00, z:  -4.00, y: 0.00, label: "二进院庭心", pause: 1.8, look: [-6.8, -4.0] },
+  { x:  0.00, z:   0.00, y: 0.00, label: "穿过游廊" },
+  { x:  0.00, z:   1.20, y: 0.30, label: "正房穿堂" },
+  { x:  0.00, z:   6.60, y: 0.30, label: "穿堂北口" },
+  { x:  0.00, z:   7.70, y: 0.00, label: "三进院" },
+  { x:  0.00, z:  12.00, y: 0.00, label: "三进院庭心", pause: 1.8, look: [0, 17.2] },
+  { x:  0.00, z:  14.60, y: 0.30, label: "后罩房" },
+  { x:  0.00, z:  17.40, y: 0.30, label: "游毕", pause: 2.4, look: [0, 9.0] },
+];
+
+/* 方块小人：Minecraft 风格六件套（头/发/躯干/双臂/双腿），肢体以关节为轴心便于摆动 */
+function makeTourist() {
+  const root = new THREE.Group();
+  const M = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, metalness: 0 });
+  const B = (w, h, d, c) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), M(c));
+
+  const torso = B(0.46, 0.62, 0.26, 0x2f9e93);      // 上衣
+  torso.position.y = 1.01;                          // 躯干 0.70 ~ 1.32
+  root.add(torso);
+
+  const head = B(0.42, 0.38, 0.42, 0xe3b98d);       // 头 1.32 ~ 1.70
+  head.position.y = 1.51;
+  root.add(head);
+
+  const hair = B(0.45, 0.09, 0.45, 0x3f2f24);       // 发顶 1.66 ~ 1.75
+  hair.position.y = 1.705;
+  root.add(hair);
+
+  const limb = (w, h, d, c, px, py) => {            // 关节在 (px,py)，肢体向下垂 h
+    const pivot = new THREE.Group();
+    pivot.position.set(px, py, 0);
+    const m = B(w, h, d, c);
+    m.position.y = -h / 2;
+    pivot.add(m);
+    root.add(pivot);
+    return pivot;
+  };
+
+  const legL = limb(0.17, 0.70, 0.17, 0x3d4a8f, -0.12, 0.70);
+  const legR = limb(0.17, 0.70, 0.17, 0x3d4a8f,  0.12, 0.70);
+  const armL = limb(0.15, 0.60, 0.15, 0x2f9e93, -0.31, 1.30);
+  const armR = limb(0.15, 0.60, 0.15, 0x2f9e93,  0.31, 1.30);
+
+  root.userData.limbs = { legL, legR, armL, armR };
+  root.visible = false;
+  return root;
+}
+
+const tourist = makeTourist();
+scene.add(tourist);
+
+/* 相机避障用的粗占据格（0.5m）——只标记"高于台基"的实体，台基不挡相机视线 */
+const OCC_CELL = 0.5;
+let occ = null;
+
+function buildOccupancy(boxes) {
+  occ = null;
+  if (!boxes || !boxes.length) return;
+  const bb = computeBoxesAABB(boxes);
+  if (bb.isEmpty()) return;
+  const ox = Math.floor(bb.min.x / OCC_CELL) - 1;
+  const oz = Math.floor(bb.min.z / OCC_CELL) - 1;
+  const nx = Math.ceil(bb.max.x / OCC_CELL) - ox + 2;
+  const ny = Math.ceil((bb.max.y + 1.5) / OCC_CELL) + 2;
+  const nz = Math.ceil(bb.max.z / OCC_CELL) - oz + 2;
+  const g = new Uint8Array(nx * ny * nz);
+  const Y0 = 0.45, Y1 = 3.40;
+  for (const b of boxes) {
+    const y0 = b.y - b.h / 2, y1 = b.y + b.h / 2;
+    if (y1 <= Y0 || y0 >= Y1) continue;
+    const i0 = Math.floor((b.x - b.w / 2) / OCC_CELL) - ox, i1 = Math.floor((b.x + b.w / 2) / OCC_CELL) - ox;
+    const j0 = Math.floor((b.z - b.d / 2) / OCC_CELL) - oz, j1 = Math.floor((b.z + b.d / 2) / OCC_CELL) - oz;
+    const k0 = Math.max(0, Math.floor(y0 / OCC_CELL)), k1 = Math.min(ny - 1, Math.floor(y1 / OCC_CELL));
+    for (let k = k0; k <= k1; k++)
+      for (let i = Math.max(0, i0); i <= Math.min(nx - 1, i1); i++)
+        for (let j = Math.max(0, j0); j <= Math.min(nz - 1, j1); j++)
+          g[(k * nz + j) * nx + i] = 1;
+  }
+  occ = { g, ox, oz, nx, ny, nz };
+}
+
+function occAt(x, y, z) {
+  if (!occ) return false;
+  const i = Math.floor(x / OCC_CELL) - occ.ox;
+  const j = Math.floor(z / OCC_CELL) - occ.oz;
+  const k = Math.floor(y / OCC_CELL);
+  if (i < 0 || i >= occ.nx || j < 0 || j >= occ.nz || k < 0 || k >= occ.ny) return false;
+  return occ.g[(k * occ.nz + j) * occ.nx + i] === 1;
+}
+
+const tour = { active: false, i: 0, t: 0, pauseLeft: 0, yaw: 0, phase: 0 };
+const tourLabelEl = document.getElementById("tour-label");
+const exitTourBtn = document.getElementById("btn-exit-tour");
+
+function lerpAngle(a, b, t) {           // 角度插值，处理 ±π 跨越
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
+}
+
+function finishGrow() {                 // 进游览前把"生长动画"一次性收尾，避免等待
+  if (grow && voxMesh) {
+    voxMesh.count = grow.total;
+    if (voxEdges) voxEdges.geometry.setDrawRange(0, grow.total * EDGE_VERTS_PER_BOX);
+    grow = null;
+  }
+}
+
+function enterTour() {
+  if (!voxMesh) { setStatus("先生成一座院子，再输入「开始游览」"); return; }
+  finishGrow();
+  buildOccupancy(voxMesh.userData.boxes);
+
+  const p0 = TOUR_PATH[0], p1 = TOUR_PATH[1];
+  tour.active = true; tour.i = 0; tour.t = 0; tour.phase = 0;
+  tour.pauseLeft = p0.pause || 0;
+  tour.yaw = Math.atan2(p1.x - p0.x, p1.z - p0.z);
+
+  tourist.visible = true;
+  tourist.position.set(p0.x, p0.y, p0.z);
+  tourist.rotation.y = tour.yaw;
+  camera.position.set(
+    p0.x - Math.sin(tour.yaw) * CAM_BACK,
+    p0.y + CAM_UP,
+    p0.z - Math.cos(tour.yaw) * CAM_BACK
+  );
+  controls.enabled = false;             // 与观察模式互斥
+  document.body.classList.add("touring");
+  if (tourLabelEl) tourLabelEl.textContent = p0.label || "";
+  setStatus("游览中 · 沿中轴自南向北", true);
+}
+
+function exitTour() {
+  if (!tour.active) return;
+  tour.active = false;
+  tourist.visible = false;
+  controls.enabled = true;
+  document.body.classList.remove("touring");
+  if (voxMesh && voxMesh.userData.boxes) fitCameraToBox(computeBoxesAABB(voxMesh.userData.boxes));
+  setStatus("已退出游览");
+}
+
+function applyTourCamera(dt) {
+  const p = tourist.position;
+  const fx = Math.sin(tour.yaw), fz = Math.cos(tour.yaw);        // 前进方向
+  const ax = p.x, ay = p.y + CAM_ANCHOR, az = p.z;               // 视线锚点
+  const ix = p.x - fx * CAM_BACK, iy = p.y + CAM_UP, iz = p.z - fz * CAM_BACK;
+
+  // 沿「锚点 → 理想机位」采样，遇实体则拉近，防止相机穿墙/穿屋顶
+  let bx = ix, by = iy, bz = iz;
+  const N = 12;
+  for (let s = 1; s <= N; s++) {
+    const tt = s / N;
+    if (occAt(ax + (ix - ax) * tt, ay + (iy - ay) * tt, az + (iz - az) * tt)) {
+      const back = Math.max(0.5, (s - 1) / N);
+      bx = ax + (ix - ax) * back; by = ay + (iy - ay) * back; bz = az + (iz - az) * back;
+      break;
+    }
+  }
+  camera.position.lerp(new THREE.Vector3(bx, by, bz), 1 - Math.exp(-10 * dt));
+  camera.lookAt(ax + fx * 1.3, ay + 0.12, az + fz * 1.3);
+}
+
+function updateTour(dt) {
+  const path = TOUR_PATH;
+  const last = path[path.length - 1];
+
+  if (tour.i >= path.length - 1) {                              // 末点：留驻并回望
+    if (last.look) {
+      tour.yaw = lerpAngle(tour.yaw, Math.atan2(last.look[0] - last.x, last.look[1] - last.z),
+                           1 - Math.exp(-TURN_K * dt));
+    }
+    tourist.rotation.y = tour.yaw;
+    return applyTourCamera(dt);
+  }
+
+  const a = path[tour.i], b = path[tour.i + 1];
+
+  if (tour.pauseLeft > 0) {                                     // 驻足：转头看点
+    tour.pauseLeft -= dt;
+    if (a.look) {
+      tour.yaw = lerpAngle(tour.yaw, Math.atan2(a.look[0] - a.x, a.look[1] - a.z),
+                           1 - Math.exp(-TURN_K * dt));
+    }
+    tour.phase *= Math.exp(-9 * dt);                            // 收步
+  } else {
+    const segLen = Math.max(Math.hypot(b.x - a.x, b.z - a.z), 1e-6);
+    const speed = Math.abs(b.y - a.y) > 0.01 ? WALK_SPEED * 0.75 : WALK_SPEED;  // 上下台阶略慢
+    tour.t += (speed * dt) / segLen;
+    if (tour.t >= 1) {
+      tour.t = 0;
+      tour.i++;
+      const np = path[tour.i];
+      tour.pauseLeft = np.pause || 0;
+      if (tourLabelEl) tourLabelEl.textContent = np.label || "";
+    }
+    tourist.position.set(
+      a.x + (b.x - a.x) * tour.t,
+      a.y + (b.y - a.y) * tour.t,
+      a.z + (b.z - a.z) * tour.t
+    );
+    tour.yaw = lerpAngle(tour.yaw, Math.atan2(b.x - a.x, b.z - a.z), 1 - Math.exp(-TURN_K * dt));
+    tour.phase += (speed * dt) / 0.34;                          // 步频
+  }
+
+  tourist.rotation.y = tour.yaw;
+  const sw = Math.sin(tour.phase) * 0.52;
+  const L = tourist.userData.limbs;
+  L.legL.rotation.x = sw;      L.legR.rotation.x = -sw;
+  L.armL.rotation.x = -sw * 0.85; L.armR.rotation.x = sw * 0.85;
+
+  applyTourCamera(dt);
+}
+
+if (exitTourBtn) exitTourBtn.addEventListener("click", exitTour);
+addEventListener("keydown", (e) => { if (e.key === "Escape" && tour.active) exitTour(); });
+
 /* ---------------- 渲染循环 ---------------- */
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
@@ -291,11 +533,22 @@ addEventListener("resize", () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
+let lastFrameT = performance.now();
 function animate() {
   requestAnimationFrame(animate);
-  controls.update();
+  const now = performance.now();
+  const dt = Math.min(0.05, (now - lastFrameT) / 1000);
+  lastFrameT = now;
+
   grid.position.x = Math.round(modelCenter.x);
   grid.position.z = Math.round(modelCenter.z);
+
+  if (tour.active) {
+    updateTour(dt);                 // 游览模式：相机由巡游驱动，OrbitControls 让位
+  } else {
+    controls.update();
+  }
+
   if (grow && voxMesh) {
     const t = Math.min(1, (performance.now() - grow.start) / grow.duration);
     const eased = t;                                // 匀速线性，便于看清生长过程
