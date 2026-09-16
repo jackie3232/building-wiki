@@ -70,6 +70,8 @@ class Handler(BaseHTTPRequestHandler):
                     ctype = "application/javascript; charset=utf-8"
                 elif fp.endswith(".css"):
                     ctype = "text/css; charset=utf-8"
+                elif fp.endswith(".png"):
+                    ctype = "image/png"
                 else:
                     ctype = "application/octet-stream"
                 return self._serve_file(fp, ctype)

@@ -46,107 +46,129 @@ scene.add(boxRoot);
 function clearBoxes() {
   exitTour();                     // 巡游中清空场景 => 先停止巡游
   grow = null;
-  if (voxMesh) {
-    boxRoot.remove(voxMesh);
-    voxMesh.geometry.dispose();
-    voxMesh.material.dispose();
-    voxMesh = null;
+  for (const mesh of voxMeshes) {          // 各族共用同一份 BoxGeometry，几何体释放一次即可
+    boxRoot.remove(mesh);
+    mesh.material.dispose();               // 贴图在 texCache 里复用，不随族销毁
   }
-  if (voxEdges) {
-    boxRoot.remove(voxEdges);
-    voxEdges.geometry.dispose();
-    voxEdges.material.dispose();
-    voxEdges = null;
-  }
+  if (voxMeshes.length) voxMeshes[0].geometry.dispose();
+  voxMeshes = [];
+  voxBoxes = [];
 }
 
-let voxMesh = null;
-let voxEdges = null;
-let grow = null;                       // 渐进式生长状态：{ total, start, duration }
+let voxMeshes = [];                    // 按材质族分组的 InstancedMesh（贴图不同 -> 材质不能共用）
+let voxBoxes = [];                     // 全场体素，Y 升序（点选反查 / 相机取景 / 相机占据格）
+let grow = null;                       // 渐进式生长状态：{ total, start, duration, ys, parts }
 let currentGraph = null;               // 场上场景所依据的实例图谱（后端随响应回传，游览时原样带回）
-const EDGE_VERTS_PER_BOX = 24;        // 与 addBoxEdges 中 tmpl 顶点数(12条边×2点)一致
+
+/* ---------------- 材质贴图：16×16 像素级，按 role 归入 4 个材质族 ----------------
+   贴图是「灰度 + 亮度均值贴近 255」的，与 role 颜色(instanceColor)**相乘**上色 ——
+   于是同一张图能服务所有 role，不必按 role 拆材质；族与族之间靠**图案**区分
+   （青砖砌 / 城砖 / 木纹 / 抹灰砖雕），而不是靠缝、也不是靠逐块描边。
+   这正是 Minecraft 的做法：几何严丝合缝，方块感来自贴图本身。 */
+const FAMILY_OF_ROLE = {
+  zhengfang: "brick", xiangfang: "brick", daozuofang: "brick",
+  houzhaofang: "brick", erfang: "brick",          // 房屋：青砖砌
+  yuanqiang: "wall",                              // 院墙：城砖（大砖、缝更深）
+  youlang: "wood", zhaimen: "wood", chuihuamen: "wood",   // 廊与门：木构
+  yingbi: "plaster",                              // 影壁：抹灰砖雕
+};
+const FAMILY_FALLBACK = "brick";                  // 图谱出现未知 role 时的兜底
+
+const texLoader = new THREE.TextureLoader();
+const texCache = new Map();
+function familyTexture(fam) {
+  let t = texCache.get(fam);
+  if (!t) {
+    t = texLoader.load(`/static/textures/${fam}.png`);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.magFilter = THREE.NearestFilter;             // 放大用最近邻，保住像素块感
+    t.minFilter = THREE.NearestMipmapNearestFilter;
+    t.anisotropy = 4;
+    texCache.set(fam, t);
+  }
+  return t;
+}
 
 function addBoxes(boxes) {
   clearBoxes();
   if (!boxes.length) return 0;
-  // 体素数量可达上万 -> 用 InstancedMesh 单次 draw call 渲染，避免逐 block 卡死
-  const geo = new THREE.BoxGeometry(1, 1, 1);
-  const mat = new THREE.MeshStandardMaterial({ roughness: 0.72, metalness: 0.05 });
-  voxMesh = new THREE.InstancedMesh(geo, mat, boxes.length);
+
+  // 按 role -> 材质族分组，每族一个 InstancedMesh（贴图不同，材质不能共用）
+  const groups = new Map();
+  for (const b of boxes) {
+    const fam = FAMILY_OF_ROLE[b.role] || FAMILY_FALLBACK;
+    let arr = groups.get(fam);
+    if (!arr) groups.set(fam, (arr = []));
+    arr.push(b);
+  }
+
+  const geo = new THREE.BoxGeometry(1, 1, 1);      // 各族共用一份几何体（UV 每面 0→1，即每面一张贴图）
   const m = new THREE.Matrix4();
   const p = new THREE.Vector3();
   const q = new THREE.Quaternion();
   const s = new THREE.Vector3();
   const col = new THREE.Color();
-  const FILL = 0.92;   // 实心块微缩留缝，配合边线呈现体素网格感
-  // 按 Y 升序（从底向上）组织实例顺序，使渐显呈现“建筑自地面长高”的效果
-  const ordered = [...boxes].sort((a, b) => a.y - b.y);
-  for (let i = 0; i < ordered.length; i++) {
-    const b = ordered[i];
-    p.set(b.x, b.y, b.z);
-    s.set(b.w * FILL, b.h * FILL, b.d * FILL);
-    m.compose(p, q, s);
-    voxMesh.setMatrixAt(i, m);
-    col.set(b.color !== undefined ? b.color : 0x999999);
-    voxMesh.setColorAt(i, col);
+  const parts = [];
+  let total = 0;
+
+  for (const [fam, arr] of groups) {
+    const sorted = arr.slice().sort((a, b) => a.y - b.y);   // 族内 Y 升序，供自下而上生长
+    const mat = new THREE.MeshStandardMaterial({
+      map: familyTexture(fam),
+      roughness: 0.82,
+      metalness: 0.0,                             // 砖木石都不用金属感，免得高光糊住贴图
+    });
+    const mesh = new THREE.InstancedMesh(geo, mat, sorted.length);
+    for (let i = 0; i < sorted.length; i++) {
+      const b = sorted[i];
+      p.set(b.x, b.y, b.z);
+      s.set(b.w, b.h, b.d);                       // 满格：占满整格、相邻块共面 -> 零缝
+      m.compose(p, q, s);
+      mesh.setMatrixAt(i, m);
+      col.set(b.color !== undefined ? b.color : 0x999999);
+      mesh.setColorAt(i, col);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.userData.boxes = sorted;                 // 点选反查构件名（与实例下标一致）
+
+    // 包围球必须按「全量实例」算好再缓存：
+    // three 的 InstancedMesh 只用算球那一刻的 count 计算 boundingSphere，且算完永久缓存。
+    // 若留给 three 在渲染时惰性计算，那时 count 已被生长动画压到 0~24，
+    // 球体会退化成墙角一小块（实测 r=2.8m，而正确值 r=24.9m），
+    // 于是视锥剔除会把整个模型错误剔除 —— 画面只剩空场景。故此处必须在 count 归零之前算。
+    mesh.computeBoundingSphere();
+    mesh.count = 0;
+
+    boxRoot.add(mesh);
+    voxMeshes.push(mesh);
+    parts.push({ mesh, ys: sorted.map((b) => b.y) });
+    total += sorted.length;
   }
-  voxMesh.instanceMatrix.needsUpdate = true;
-  if (voxMesh.instanceColor) voxMesh.instanceColor.needsUpdate = true;
-  voxMesh.userData.boxes = ordered;   // 供点选反查构件名（与实例顺序一致）
-  boxRoot.add(voxMesh);
-  addBoxEdges(ordered);                // 叠加每个体素的边框线，凸显体素结构（同序）
+
+  voxBoxes = [...boxes].sort((a, b) => a.y - b.y);
 
   // 先按全部体素算好最终构图，相机一开始就对准（避免增长过程中镜头漂移）
   const bb = computeBoxesAABB(boxes);
   if (!bb.isEmpty()) fitCameraToBox(bb);
 
-  // 包围球必须在这里按「全量实例」算好再缓存：
-  // three 的 InstancedMesh 只用算球那一刻的 count 计算 boundingSphere，且算完永久缓存。
-  // 若留给 three 在渲染时惰性计算，那时 count 已被下面的生长动画压到 0~24，
-  // 球体会退化成墙角一小块（实测 r=2.8m，而正确值 r=24.9m），
-  // 于是视锥剔除会把整个模型错误剔除 —— 画面只剩 voxEdges 的线框（放大后尤其明显）。
-  voxMesh.computeBoundingSphere();
-
-  // 渐进式生长：实例已按 Y 升序组织，故分帧渐显即从底向上“长高”
-  // （InstancedMesh.count 控制可见实例数；边框线用 setDrawRange 同步裁剪）。
-  // 匀速线性增长，便于看清“建筑自地面层层升起”的过程；总数越多耗时越长，封顶 7s。
-  voxMesh.count = 0;
-  if (voxEdges) voxEdges.geometry.setDrawRange(0, 0);
-  const total = ordered.length;
+  // 渐进式生长：各族统一按「全局高度阈值」推进，整体仍是自下而上“长高”。
+  // 匀速度线性增长，便于看清“建筑自地面层层升起”的过程；总数越多耗时越长，封顶 7s。
   const duration = Math.min(7000, Math.max(3000, Math.round(total / 2)));
-  grow = { total, start: performance.now(), duration };
+  grow = { total, start: performance.now(), duration, ys: voxBoxes.map((b) => b.y), parts };
   setStatus(`正在生成体素模型 · ${total} 体素`);
   return total;
 }
 
-// 每个体素描一圈边框线（合并为单条 LineSegments，颜色取所属构件色加深），呈现体素划分
-function addBoxEdges(boxes) {
-  const tmpl = [
-    [-0.5,-0.5,-0.5],[0.5,-0.5,-0.5], [0.5,-0.5,-0.5],[0.5,0.5,-0.5],
-    [0.5,0.5,-0.5],[-0.5,0.5,-0.5], [-0.5,0.5,-0.5],[-0.5,-0.5,-0.5],
-    [-0.5,-0.5,0.5],[0.5,-0.5,0.5], [0.5,-0.5,0.5],[0.5,0.5,0.5],
-    [0.5,0.5,0.5],[-0.5,0.5,0.5], [-0.5,0.5,0.5],[-0.5,-0.5,0.5],
-    [-0.5,-0.5,-0.5],[-0.5,-0.5,0.5], [0.5,-0.5,-0.5],[0.5,-0.5,0.5],
-    [0.5,0.5,-0.5],[0.5,0.5,0.5], [-0.5,0.5,-0.5],[-0.5,0.5,0.5],
-  ];
-  const verts = new Float32Array(boxes.length * tmpl.length * 3);
-  const cols = new Float32Array(boxes.length * tmpl.length * 3);
-  const c = new THREE.Color();
-  let o = 0;
-  for (const b of boxes) {
-    c.set(b.color !== undefined ? b.color : 0x999999).multiplyScalar(0.5); // 边线加深以凸显
-    for (const t of tmpl) {
-      verts[o] = b.x + t[0] * b.w; verts[o + 1] = b.y + t[1] * b.h; verts[o + 2] = b.z + t[2] * b.d;
-      cols[o] = c.r; cols[o + 1] = c.g; cols[o + 2] = c.b;
-      o += 3;
-    }
+// 生长推进：族内实例已按 Y 升序，故「低于阈值的高度全显示」即整体自下而上长高
+function growTo(threshold) {
+  if (!grow) return;
+  for (const part of grow.parts) {
+    const ys = part.ys;
+    let n = 0;
+    while (n < ys.length && ys[n] <= threshold) n++;
+    if (part.mesh.count !== n) part.mesh.count = n;
   }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.BufferAttribute(verts, 3));
-  g.setAttribute("color", new THREE.BufferAttribute(cols, 3));
-  const m = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.6 });
-  voxEdges = new THREE.LineSegments(g, m);
-  boxRoot.add(voxEdges);
 }
 
 function computeBoxesAABB(boxes) {
@@ -198,15 +220,15 @@ renderer.domElement.addEventListener("pointerup", (e) => {
   const moved = Math.hypot(e.clientX - downXY[0], e.clientY - downXY[1]);
   downXY = null;
   if (moved > 5) return; // 拖拽不算点选
-  if (!voxMesh) return;
+  if (!voxMeshes.length) return;
   pointer.x = (e.clientX / innerWidth) * 2 - 1;
   pointer.y = -(e.clientY / innerHeight) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
-  const hits = raycaster.intersectObject(voxMesh, false);
+  const hits = raycaster.intersectObjects(voxMeshes, false);   // 命中哪个族，就用哪个族的实例表反查
   if (hits.length) {
-    const id = hits[0].instanceId;
-    const b = voxMesh.userData.boxes[id];
-    setStatus(`选中：${b.label || b.role || "未知"}`, false);
+    const hit = hits[0];
+    const b = hit.object.userData.boxes[hit.instanceId];
+    if (b) setStatus(`选中：${b.label || b.role || "未知"}`, false);
   }
 });
 
@@ -233,7 +255,7 @@ async function renderResponse(data) {
     // 路线由后端按「本次这张图谱」派生；前端只负责把图谱带过去，不重建模型
     if (data.graph) currentGraph = data.graph;
     if (Array.isArray(data.route) && data.route.length >= 2) tourPath = data.route;
-    if (!voxMesh && Array.isArray(data.boxes)) addBoxes(data.boxes);   // 场上没模型才需要建
+    if (!voxMeshes.length && Array.isArray(data.boxes)) addBoxes(data.boxes);   // 场上没模型才需要建
     enterTour();
     return;
   }
@@ -409,18 +431,16 @@ function lerpAngle(a, b, t) {           // 角度插值，处理 ±π 跨越
 }
 
 function finishGrow() {                 // 进游览前把"生长动画"一次性收尾，避免等待
-  if (grow && voxMesh) {
-    voxMesh.count = grow.total;
-    if (voxEdges) voxEdges.geometry.setDrawRange(0, grow.total * EDGE_VERTS_PER_BOX);
-    grow = null;
-  }
+  if (!grow) return;
+  for (const part of grow.parts) part.mesh.count = part.ys.length;
+  grow = null;
 }
 
 function enterTour() {
-  if (!voxMesh) { setStatus("先生成一座院子，再输入「开始游览」"); return; }
+  if (!voxMeshes.length) { setStatus("先生成一座院子，再输入「开始游览」"); return; }
   if (!tourPath || tourPath.length < 2) { setStatus("未取到巡游路线，请重新生成院落"); return; }
   finishGrow();
-  buildOccupancy(voxMesh.userData.boxes);
+  buildOccupancy(voxBoxes);
 
   const p0 = tourPath[0], p1 = tourPath[1];
   tour.active = true; tour.i = 0; tour.t = 0; tour.phase = 0;
@@ -449,7 +469,7 @@ function exitTour() {
   tourist.visible = false;
   controls.enabled = true;
   document.body.classList.remove("touring");
-  if (voxMesh && voxMesh.userData.boxes) fitCameraToBox(computeBoxesAABB(voxMesh.userData.boxes));
+  if (voxBoxes.length) fitCameraToBox(computeBoxesAABB(voxBoxes));
   setStatus("已退出游览");
 }
 
@@ -582,19 +602,13 @@ function animate() {
     controls.update();
   }
 
-  if (grow && voxMesh) {
-    const t = Math.min(1, (performance.now() - grow.start) / grow.duration);
-    const eased = t;                                // 匀速线性，便于看清生长过程
-    const target = Math.min(grow.total, Math.floor(grow.total * eased));
-    if (target !== voxMesh.count) {
-      voxMesh.count = target;
-      if (voxEdges) voxEdges.geometry.setDrawRange(0, target * EDGE_VERTS_PER_BOX);
-    }
+  if (grow) {
+    const t = Math.min(1, (now - grow.start) / grow.duration);
+    const target = Math.min(grow.total, Math.floor(grow.total * t));   // 匀速线性，便于看清生长过程
+    growTo(target > 0 ? grow.ys[target - 1] : -Infinity);              // 各族按同一高度阈值推进
     if (t >= 1) {
-      voxMesh.count = grow.total;
-      if (voxEdges) voxEdges.geometry.setDrawRange(0, grow.total * EDGE_VERTS_PER_BOX);
       const n = grow.total;
-      grow = null;
+      finishGrow();
       setStatus(`已生成体素模型 · ${n} 体素`);
     }
   }
