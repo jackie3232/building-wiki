@@ -41,6 +41,7 @@ DOOR_HEIGHT = 2.1             # 房门洞口高（米，自地面起）
 ZHAMEN_GATE_SPAN = 3.0       # 大门(宅门)门道面阔（米，MVP 占位；优先从 norms.zhaimen.gateSpan 取）
 ZHAMEN_HEIGHT = 4.2          # 大门门楼屋顶高度（米，高于普通房屋，MVP 占位；优先从 norms.zhaimen.height 取）
 ZHAMEN_EAST_MARGIN = 0.8      # 大门东边缘距院墙东端留白（米），使东南角院墙完整闭合
+CHUIHUA_GATE_SPAN = 3.0       # 垂花门面阔（米，约一间；优先从 norms.chuihuamen.gateSpan 取）
 
 # 体素边长（米）。越小越细、box 越多；越大越省、体素感越弱。MVP 提速版适中取值。
 VOXEL_SIZE = 0.6
@@ -513,9 +514,11 @@ def _geo_chuihua(zc, w, role, norms):
 
     ④ 本职：门道为围合结构(南北开门)，门楼独立子构件；⑤ 实心体素化即可。
     不再用实心方块占位（此前错误）。
+    门道面阔 gs 取自 norms.chuihuamen.gateSpan，与 _geo_wall_ring 开洞同源，
+    保证「门体宽 == 卡子墙洞口宽」，两侧不留通缝。
     """
     cfg = (norms.get("chuihuamen", {}) or {})
-    gs = round(float(cfg.get("gateSpan", 1.2)), 3)
+    gs = round(float(cfg.get("gateSpan", CHUIHUA_GATE_SPAN)), 3)
     gh = round(float(cfg.get("height", WING_HEIGHT)), 3)
     depth = 1.2
     comps = _geo_room(role, 0, zc, gs, WING_HEIGHT, depth, ["S", "N"])   # 门道南北贯通
@@ -597,7 +600,11 @@ def _geo_wall_ring(c, w, zc, d, norms, draw_south=True):
             if r_seg > 0.01:
                 out.append(_geo_wall((gx + gh) + r_seg / 2, zc_wall, r_seg, H, T, "yuanqiang"))
         elif gate in ("chuihuamen", "chuantang"):
-            gh = DOOR_WIDTH / 2
+            # 垂花门门洞宽 = 门体面阔(gateSpan)，与宅门同法从 norms 取；
+            # 穿堂仍用房门洞口宽 DOOR_WIDTH（两者尺寸语义不同，不共用同一常量）
+            gs = (float((norms.get("chuihuamen", {}) or {}).get("gateSpan", CHUIHUA_GATE_SPAN))
+                  if gate == "chuihuamen" else DOOR_WIDTH)
+            gh = gs / 2
             l_seg = (0 - gh) - (-half)
             if l_seg > 0.01:
                 out.append(_geo_wall(-half + l_seg / 2, zc_wall, l_seg, H, T, "yuanqiang"))

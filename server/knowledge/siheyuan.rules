@@ -196,9 +196,9 @@
       "desc": "后罩房面阔约同正房；进深较浅约5m"
     },
     "chuihuamen": {
-      "gateSpan": 1.2,
-      "height": 3.3,
-      "desc": "垂花门面阔约一间(占位)；门楼可略抬高"
+      "gateSpan": 3.0,
+      "height": 3.6,
+      "desc": "垂花门面阔约一间(3.0m，比照宅门门道ZHAMEN_GATE_SPAN)；门楼比门道顶(3.3)略抬高至3.6"
     },
     "chuantang": {
       "mingjianOpen": true,
