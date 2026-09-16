@@ -98,6 +98,13 @@ function addBoxes(boxes) {
   const bb = computeBoxesAABB(boxes);
   if (!bb.isEmpty()) fitCameraToBox(bb);
 
+  // 包围球必须在这里按「全量实例」算好再缓存：
+  // three 的 InstancedMesh 只用算球那一刻的 count 计算 boundingSphere，且算完永久缓存。
+  // 若留给 three 在渲染时惰性计算，那时 count 已被下面的生长动画压到 0~24，
+  // 球体会退化成墙角一小块（实测 r=2.8m，而正确值 r=24.9m），
+  // 于是视锥剔除会把整个模型错误剔除 —— 画面只剩 voxEdges 的线框（放大后尤其明显）。
+  voxMesh.computeBoundingSphere();
+
   // 渐进式生长：实例已按 Y 升序组织，故分帧渐显即从底向上“长高”
   // （InstancedMesh.count 控制可见实例数；边框线用 setDrawRange 同步裁剪）。
   // 匀速线性增长，便于看清“建筑自地面层层升起”的过程；总数越多耗时越长，封顶 7s。
