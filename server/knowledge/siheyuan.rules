@@ -136,6 +136,20 @@
       "desc": "大门位于倒座房东端、院落东南角(坎宅巽门)"
     }
   ],
+  "usage": [
+    {
+      "role": "zhengfang",
+      "usage": "guoting",
+      "at": "erjinyuan_zhengwei",
+      "when": "jin>=4",
+      "ref": [
+        "guoting",
+        "zhengfang",
+        "erjinyuan_zhengwei"
+      ],
+      "desc": "四进院中，第二进院的正位房作「过厅」（前堂）：前后开门、南北贯通，其北第三进院的正位房仍为正房（后寝），构成「前堂后寝」。role 不变、仅用途不同——依据快懂百科《四进院落》中轴序列原文「南房、第一进院、垂花门、第二进院、正房或过厅、第三进院、正房、第四进院、后罩房」，及汉典·国语辞典「过厅=旧式房屋中前后开门，可供人穿行通过的厅堂」。"
+    }
+  ],
   "sequence": {
     "ref": "xulie",
     "desc": "进沿中轴南北序列；进数↑院落往南加",
@@ -153,11 +167,33 @@
         "chuihuamen(卡子墙,一进→二进)",
         "内院(正房+厢房,正房明间为穿堂)",
         "后院(正房之后+后罩房,经穿堂/夹道连通)"
+      ],
+      "4": [
+        "外院(倒座房南+影壁)",
+        "chuihuamen(卡子墙,一进→二进)",
+        "内院1(过厅+厢房,过厅明间为穿堂)",
+        "内院2(正房+厢房,正房明间为穿堂)",
+        "后院(正房之后+后罩房,经穿堂/夹道连通)"
       ]
-    }
+    },
+    "note": "byJin 是各进数的中轴庭院序列（图谱侧的唯一事实源）。三进以上：一进→二进走垂花门，其后各进经正位房明间穿堂连通，末进为后院(后罩房)。四进时第二进院正位房作「过厅」(见 constraints 中 usage:guoting 条)，与第三进院正房构成「前堂后寝」——过厅仍是 zhengfang，仅用途不同，故此处记作「过厅+厢房」而非新角色。"
   },
   "norms": {
     "modus": 3.3,
+    "room": {
+      "thickness": 0.3,
+      "heightDefault": 3.3,
+      "taimingOutset": 0.5,
+      "desc": "房间围合墙/顶/地厚度(米)，原 ④ 常量 WALL_THICKNESS。房屋自身厚度，与院墙厚度(wall.*)语义不同故分列。heightDefault：角色未声明 height 时的回落基准。taimingOutset：台基自房屋外墙面线外扩的距离(米)——台明露出部分即为可见台座。"
+    },
+    "taiming": {
+      "desc": "台基高(台明高，米)。**声明即生成**：某角色声明了 taiming，④ 才为它生成台基构件（对照类型图谱 structs 是否含 taiji）。依据清工部《工程做法则例》小式「台明高=柱高/5」≈0.66m；马炳坚《北京四合院建筑》「垂花门、大门台明可与正房同高但不可超越；厢房、抄手游廊、倒座房比正房低一步台阶(4寸≈0.13m)；耳房既低于正房也低于厢房」。本轮各房屋统一取 0.30m（= 展示层巡游落脚面 TOUR_STEP，保证巡游与台基自洽）；等级分化的台明（正房 0.66 / 厢房·倒座 0.53 / 后罩房 0.40）留待体素细化轮启用——VOXEL_SIZE=0.6m 下 0.40~0.70 同渲染为 1 层，无可视差异。"
+    },
+    "door": {
+      "width": 1.6,
+      "height": 2.1,
+      "desc": "房门洞口宽/高(米，高自地面起)，原 ④ 常量 DOOR_WIDTH / DOOR_HEIGHT。与门体面阔(gateSpan)语义不同：门洞是墙上开的缺，门体是一栋建筑。"
+    },
     "courtDepthRatio": {
       "byRole": {
         "front": 0.3,
@@ -178,33 +214,66 @@
     "zhengfang": {
       "miankuo": 5,
       "jinshen": 2,
-      "desc": "正房面阔5间(1明+2次+2梢)；进深约6.5m(≈2×modus)，据《北京老城保护房屋修缮技术导则2019》正房五檩/七檩进深6.5~7m"
+      "height": 3.3,
+      "taiming": 0.3,
+      "desc": "正房面阔5间(1明+2次+2梢)；进深约6.5m(≈2×modus)，据《北京老城保护房屋修缮技术导则2019》正房五檩/七檩进深6.5~7m。height 暂与厢房持平(3.3)，待按等级校准——正房应最高。taiming=台明高，见 norms.taiming.desc。"
     },
     "xiangfang": {
       "miankuo": 3,
       "jinshen": 1.4,
-      "desc": "厢房面阔3间；进深约4.5m(≈1.4×modus)，据导则厢房无廊进深4m、带廊5m"
+      "height": 3.3,
+      "taiming": 0.3,
+      "desc": "厢房面阔3间；进深约4.5m(≈1.4×modus)，据导则厢房无廊进深4m、带廊5m。height 原 ④ 常量 WING_HEIGHT。taiming=台明高，见 norms.taiming.desc。"
     },
     "daozuofang": {
       "miankuo": 5,
       "jinshen": 1.4,
-      "desc": "倒座房面阔约同正房；进深较浅约4.5m"
+      "height": 3.3,
+      "taiming": 0.3,
+      "desc": "倒座房面阔约同正房；进深较浅约4.5m。height 原 ④ 常量 WING_HEIGHT。taiming=台明高，见 norms.taiming.desc。"
     },
     "houzhaofang": {
       "miankuo": 5,
       "jinshen": 1.5,
-      "desc": "后罩房面阔约同正房；进深较浅约5m"
+      "height": 3.3,
+      "taiming": 0.3,
+      "desc": "后罩房面阔约同正房；进深较浅约5m。height 原 ④ 常量 WING_HEIGHT。taiming=台明高，见 norms.taiming.desc。"
     },
     "chuihuamen": {
       "gateSpan": 3.0,
       "height": 3.6,
-      "desc": "垂花门面阔约一间(3.0m，比照宅门门道ZHAMEN_GATE_SPAN)；门楼比门道顶(3.3)略抬高至3.6"
+      "depth": 1.2,
+      "desc": "垂花门面阔约一间(3.0m，比照宅门门道 gateSpan)；门楼比门道顶(3.3)略抬高至3.6；depth=门道进深(米)。"
+    },
+    "zhaimen": {
+      "gateSpan": 3.0,
+      "height": 4.2,
+      "eastMargin": 0.8,
+      "desc": "宅门(大门)：门道面阔 gateSpan=3.0；门楼屋顶高 height=4.2(高于普通房屋)；eastMargin=门道东缘距院墙东端留白(米)，使东南角院墙完整闭合。进深同所在倒座房，不单列。"
     },
     "chuantang": {
       "mingjianOpen": true,
       "desc": "正房明间(中央开间)南北双向开门，作过厅连通后院"
     },
-    "note": "规制数值依据马炳坚《北京四合院建造》、北京市《北京老城保护房屋修缮技术导则(2019)》、清《内务府奏销档》实测折算（modus=每间基准米数，jinshen=进深折合间数）。",
+    "peripheral": {
+      "youlang": {
+        "height": 2.5,
+        "depth": 1.2,
+        "spanRatio": 0.85,
+        "colSpacing": 2.5,
+        "roofThickness": 0.2,
+        "desc": "游廊：height=廊顶高(米，原 ④ 常量 PERIPH_HEIGHT)；depth=廊深；spanRatio=廊长占房屋面阔比例；colSpacing=柱间距(米)；roofThickness=廊顶板厚。中轴穿堂口按 door.width 断开。"
+      },
+      "yingbi": {
+        "height": 2.5,
+        "width": 3.0,
+        "depth": 0.5,
+        "zOffset": 1.2,
+        "xInset": 0.5,
+        "desc": "影壁：height=高；width=面宽；depth=厚；zOffset=自院落南界北移距离(米)；xInset=自东界内收距离(米)。"
+      }
+    },
+    "note": "规制数值依据马炳坚《北京四合院建筑》、北京市《北京老城保护房屋修缮技术导则(2019)》、清工部《工程做法则例》小式、清《内务府奏销档》实测折算（modus=每间基准米数，jinshen=进深折合间数，taiming=台明高）。",
     "wall": {
       "height": 3.3,
       "thickness": 0.4,

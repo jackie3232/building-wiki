@@ -65,15 +65,39 @@ let currentGraph = null;               // 场上场景所依据的实例图谱�
    贴图是「灰度 + 亮度均值贴近 255」的，与 role 颜色(instanceColor)**相乘**上色 ——
    于是同一张图能服务所有 role，不必按 role 拆材质；族与族之间靠**图案**区分
    （青砖砌 / 城砖 / 木纹 / 抹灰砖雕），而不是靠缝、也不是靠逐块描边。
-   这正是 Minecraft 的做法：几何严丝合缝，方块感来自贴图本身。 */
-const FAMILY_OF_ROLE = {
-  zhengfang: "brick", xiangfang: "brick", daozuofang: "brick",
-  houzhaofang: "brick", erfang: "brick",          // 房屋：青砖砌
-  yuanqiang: "wall",                              // 院墙：城砖（大砖、缝更深）
-  youlang: "wood", zhaimen: "wood", chuihuamen: "wood",   // 廊与门：木构
-  yingbi: "plaster",                              // 影壁：抹灰砖雕
-};
-const FAMILY_FALLBACK = "brick";                  // 图谱出现未知 role 时的兜底
+   这正是 Minecraft 的做法：几何严丝合缝，方块感来自贴图本身。
+
+   映射不写死在这里：
+     role → material    取自本次实例图谱的 appliedType.roles.<role>.material
+     material → family  取自命名字典 /api/dict 的「材质」类
+   两处都在知识中心，前端只做查询，不维护映射表。 */
+const MATERIAL_FAMILY = {};            // material key -> family(贴图文件名)，启动时从 /api/dict 载入
+let roleMaterial = {};                 // role -> material key，随每次场景的图谱刷新
+const FAMILY_FALLBACK = "brick";       // 图谱未声明材质时的兜底（旧图谱无 appliedType 会退化为统一砖面）
+
+async function loadKnowledge() {
+  try {
+    const r = await fetch("/api/dict");
+    const d = await r.json();
+    for (const [k, v] of Object.entries(d["材质"] || {})) {
+      if (v && v.family) MATERIAL_FAMILY[k] = v.family;
+    }
+  } catch (e) {
+    console.warn("命名字典加载失败，材质将走兜底", e);
+  }
+}
+
+function setGraphMaterials(graph) {
+  const roles = (graph && graph.appliedType && graph.appliedType.roles) || {};
+  roleMaterial = {};
+  for (const [role, spec] of Object.entries(roles)) {
+    if (spec && spec.material) roleMaterial[role] = spec.material;
+  }
+}
+
+function familyOfRole(role) {
+  return MATERIAL_FAMILY[roleMaterial[role]] || FAMILY_FALLBACK;
+}
 
 const texLoader = new THREE.TextureLoader();
 const texCache = new Map();
@@ -97,7 +121,7 @@ function addBoxes(boxes) {
   // 按 role -> 材质族分组，每族一个 InstancedMesh（贴图不同，材质不能共用）
   const groups = new Map();
   for (const b of boxes) {
-    const fam = FAMILY_OF_ROLE[b.role] || FAMILY_FALLBACK;
+    const fam = familyOfRole(b.role);
     let arr = groups.get(fam);
     if (!arr) groups.set(fam, (arr = []));
     arr.push(b);
@@ -258,14 +282,15 @@ async function renderResponse(data) {
     exitTour(); clearBoxes(); currentGraph = null; setStatus("场景已清空"); return;  }
   if (data.action === "tour") {
     // 路线由后端按「本次这张图谱」派生；前端只负责把图谱带过去，不重建模型
-    if (data.graph) currentGraph = data.graph;
+    if (data.graph) { currentGraph = data.graph; setGraphMaterials(currentGraph); }
     if (Array.isArray(data.route) && data.route.length >= 2) tourPath = data.route;
     if (!voxMeshes.length && Array.isArray(data.boxes)) addBoxes(data.boxes);   // 场上没模型才需要建
     enterTour();
     return;
   }
   if (Array.isArray(data.boxes)) {
-    if (data.graph) currentGraph = data.graph;   // 记住场景来源，供后续游览带回
+    // 记住场景来源，供后续游览带回；同时刷新材质映射（role -> material 来自图谱）
+    if (data.graph) { currentGraph = data.graph; setGraphMaterials(currentGraph); }
     addBoxes(data.boxes);   // 渐进式生长：状态由 addBoxes 启动、animate 在增长完成时收尾
     return;
   }
@@ -331,6 +356,8 @@ fileInput.addEventListener("change", (e) => {
 sendEl.addEventListener("click", sendCommand);
 inputEl.addEventListener("keydown", (e) => { if (e.key === "Enter") sendCommand(); });
 clearBtn.addEventListener("click", () => { clearBoxes(); currentGraph = null; setStatus("场景已清空"); });
+
+loadKnowledge();   // 启动即载入命名字典（material -> 贴图族），供后续材质查询
 
 /* ---------------- 游览模式：第三人称自动巡游 ---------------- */
 // 方块小人沿后端派生的路线走完全院，相机吊在其后上方跟随，遇实体自动拉近。

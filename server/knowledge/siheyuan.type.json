@@ -1,7 +1,7 @@
 {
   "meta": {
     "type": "siheyuan",
-    "desc": "北京四合院类型图谱（WHAT·知识）：定义构成角色、组合拓扑、尺度模数参数槽。零坐标、无绝对米数。实例图谱继承本结构、受 siheyuan.rules 约束、用 dict.json 的 key 作词表。",
+    "desc": "北京四合院类型图谱（WHAT·知识）：定义构成角色、组合拓扑、尺度模数参数槽、等级与材质。零坐标、无绝对米数。实例图谱继承本结构、受 siheyuan.rules 约束、用 dict.json 的 key 作词表。",
     "dictRef": "dict.json",
     "rulesRef": "siheyuan.rules",
     "zeroCoord": true
@@ -96,6 +96,8 @@
     "zhengfang": {
       "ref": "zhengfang",
       "category": "空间角色",
+      "level": "yideng",
+      "material": "qingzhuan",
       "modular": {
         "miankuo": {
           "ref": "miankuo",
@@ -126,6 +128,8 @@
     "xiangfang": {
       "ref": "xiangfang",
       "category": "空间角色",
+      "level": "erdeng",
+      "material": "qingzhuan",
       "modular": {
         "miankuo": {
           "ref": "miankuo"
@@ -152,6 +156,8 @@
     "daozuofang": {
       "ref": "daozuofang",
       "category": "空间角色",
+      "level": "sandeng",
+      "material": "qingzhuan",
       "modular": {
         "miankuo": {
           "ref": "miankuo"
@@ -179,6 +185,8 @@
     "chuihuamen": {
       "ref": "chuihuamen",
       "category": "空间角色",
+      "level": "sideng",
+      "material": "mugou",
       "structs": [
         "men",
         "qiangti",
@@ -188,6 +196,8 @@
     "erfang": {
       "ref": "erfang",
       "category": "空间角色",
+      "level": "erdeng",
+      "material": "qingzhuan",
       "structs": [
         "wuoding",
         "qiangti",
@@ -199,6 +209,8 @@
     "houzhaofang": {
       "ref": "houzhaofang",
       "category": "空间角色",
+      "level": "erdeng",
+      "material": "qingzhuan",
       "structs": [
         "wuoding",
         "qiangti",
@@ -212,6 +224,8 @@
     "youlang": {
       "ref": "youlang",
       "category": "空间角色",
+      "level": "sideng",
+      "material": "mugou",
       "structs": [
         "wuoding",
         "qiangti",
@@ -222,6 +236,8 @@
     "yingbi": {
       "ref": "yingbi",
       "category": "空间角色",
+      "level": "sideng",
+      "material": "mohui",
       "structs": [
         "qiangti"
       ]
@@ -229,6 +245,8 @@
     "zhaimen": {
       "ref": "zhaimen",
       "category": "空间角色",
+      "level": "sideng",
+      "material": "mugou",
       "modular": {
         "gateSpan": {
           "ref": "miankuo",
@@ -249,6 +267,8 @@
     "yuanqiang": {
       "ref": "yuanqiang",
       "category": "空间角色",
+      "level": "sideng",
+      "material": "chengzhuan",
       "structs": [
         "qiangti"
       ],
@@ -257,6 +277,8 @@
     "kaziqiang": {
       "ref": "kaziqiang",
       "category": "空间角色",
+      "level": "sideng",
+      "material": "chengzhuan",
       "structs": [
         "qiangti"
       ],
@@ -265,6 +287,8 @@
     "chuantang": {
       "ref": "chuantang",
       "category": "空间角色",
+      "level": "sideng",
+      "material": "mugou",
       "structs": [
         "men",
         "qiangti",
@@ -275,6 +299,8 @@
     "jiaodao": {
       "ref": "jiaodao",
       "category": "空间角色",
+      "level": "sideng",
+      "material": "chengzhuan",
       "structs": [
         "qiangti"
       ],
