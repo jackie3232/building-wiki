@@ -85,16 +85,30 @@ def _parse_jin(text):
     return _CN_NUM.get(tok, 3)
 
 
-def _room(role, norms):
+def _room(role, norms, type_doc=None):
+    """一栋建筑的声明：role + 尺度 + 该栋自身的属性（等级 / 材质 / 高度 / 台明）。
+
+    属性来源：规则库 norms.<role>（height / taiming）+ 类型图谱 roles.<role>
+    （level / material）。属性「长在建筑上」而不只挂在 role 上——图谱是「这一座」的
+    差量，同一 role 的不同栋可有不同取值；④ 读建筑自带的 height / taiming。
+    """
     n = norms.get(role, {}) or {}
-    return {"role": role,
-            "miankuo": n.get("miankuo", 5),
-            "jinshen": n.get("jinshen", 3)}
+    t = ((type_doc or {}).get("roles") or {}).get(role, {}) or {}
+    r = {"role": role,
+         "miankuo": n.get("miankuo", 5),
+         "jinshen": n.get("jinshen", 3)}
+    for k in ("height", "taiming"):
+        if n.get(k) is not None:
+            r[k] = n[k]
+    for k in ("level", "material"):
+        if t.get(k) is not None:
+            r[k] = t[k]
+    return r
 
 
-def _south_with_gate(norms):
+def _south_with_gate(norms, type_doc=None):
     """最外院(sequence==1)倒座房：附大门(zhaimen)，使 ④ 渲染东南角宅门。"""
-    r = _room("daozuofang", norms)
+    r = _room("daozuofang", norms, type_doc)
     r["gate"] = {"role": "zhaimen"}
     return r
 
@@ -142,9 +156,16 @@ def _norms_get(norms, path, ctx=""):
     return cur
 
 
-def _role_height(norms, role, ctx=""):
-    """角色高度：norms.<role>.height；未声明则回落 norms.room.heightDefault。"""
-    h = (norms.get(role) or {}).get("height")
+def _spec_get(spec, norms, role, key):
+    """建筑自身属性优先，回落 norms.<role>.<key>（「这一座」覆盖「这一类」）。"""
+    if isinstance(spec, dict) and spec.get(key) is not None:
+        return spec[key]
+    return (norms.get(role) or {}).get(key)
+
+
+def _role_height(norms, role, spec=None, ctx=""):
+    """角色高度：优先建筑自带 height，回落 norms.<role>.height，再回落 heightDefault。"""
+    h = _spec_get(spec, norms, role, "height")
     if h is None:
         h = _norms_get(norms, ("room", "heightDefault"), f"{role}.height 未声明，取回落基准")
     return float(h)
@@ -166,12 +187,54 @@ def _jin_cond_ok(cond, jin):
             ">": jin > n, "<": jin < n}[op]
 
 
-def _wrap(jin, courtyards, rules_doc, type_doc=None):
-    """instance = data（实例图谱）+ appliedRules（规则库快照）+ appliedType（类型图谱快照）。
+def _used_terms(*docs):
+    """收集若干图谱块里出现过的全部标量字符串值（用于裁剪命名字典：只带用到的词）。"""
+    used = set()
 
-    两个快照都是完整深拷贝，使 instance 自包含、可脱离知识中心独立复现。
+    def walk(o):
+        if isinstance(o, dict):
+            for v in o.values():
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+        elif isinstance(o, str):
+            used.add(o)
+
+    for d in docs:
+        walk(d)
+    return used
+
+
+def _extract_dict(dict_doc, *docs):
+    """命名字典子集：只保留被用到的词条（按类别裁剪）。
+
+    判据同「附属只带用到的」——删掉任一条，图谱里就有解释不通的词。
+    meta 段是类别说明、不是词条，整段保留。
+    """
+    if not dict_doc:
+        return None
+    used = _used_terms(*docs)
+    out = {}
+    for cat, entries in dict_doc.items():
+        if cat == "meta" or not isinstance(entries, dict):
+            out[cat] = entries
+            continue
+        keep = {k: v for k, v in entries.items() if k in used}
+        if keep:
+            out[cat] = keep
+    return out
+
+
+def _wrap(jin, courtyards, rules_doc, type_doc=None, dict_doc=None):
+    """instance = data（实例图谱）+ appliedDict / appliedRules / appliedType（用到的附属知识）。
+
+    三个附属块都是知识中心的**按需子集**：只带解释本实例用得到的部分，无关的不带。
+    仍为深拷贝，使 instance 自包含、可脱离知识中心独立复现。
     """
     data = {"type": "siheyuan", "jin": jin, "courtyards": courtyards}
+    rules_snap = _snapshot_rules(rules_doc)
+    type_snap = json.loads(json.dumps(type_doc)) if type_doc is not None else None
     inst = {
         "meta": {
             "type": "siheyuan",
@@ -180,10 +243,13 @@ def _wrap(jin, courtyards, rules_doc, type_doc=None):
             "zeroCoord": True,
         },
         "data": data,
-        "appliedRules": _snapshot_rules(rules_doc),
+        "appliedRules": rules_snap,
     }
-    if type_doc is not None:
-        inst["appliedType"] = json.loads(json.dumps(type_doc))
+    if type_snap is not None:
+        inst["appliedType"] = type_snap
+    if dict_doc is not None:
+        # 裁剪输入 = 主内容 + 两个附属快照（它们引用的词同样算「用到了」）
+        inst["appliedDict"] = _extract_dict(dict_doc, data, type_snap, rules_snap)
     return inst
 
 
@@ -191,36 +257,37 @@ def build_instance(jin, omit=None):
     """① 占位：按进数合成自包含 instance（读知识中心 type+rules）。"""
     rules_doc = load_json(os.path.join(KNOWLEDGE_DIR, "siheyuan.rules"))
     type_doc = load_json(os.path.join(KNOWLEDGE_DIR, "siheyuan.type.json"))
+    dict_doc = load_json(os.path.join(KNOWLEDGE_DIR, "dict.json"))
     norms = rules_doc.get("norms", {})
     courtyards = []
 
     if jin <= 1:
         courtyards.append(_cy(1, "正院",
-            north=_room("zhengfang", norms), south=_south_with_gate(norms),
-            east=_room("xiangfang", norms), west=_room("xiangfang", norms),
+            north=_room("zhengfang", norms, type_doc), south=_south_with_gate(norms, type_doc),
+            east=_room("xiangfang", norms, type_doc), west=_room("xiangfang", norms, type_doc),
             peripheral=[{"role": "youlang"}, {"role": "yingbi"}], perimeter=True))
     elif jin == 2:
-        courtyards.append(_cy(1, "外院", south=_south_with_gate(norms),
+        courtyards.append(_cy(1, "外院", south=_south_with_gate(norms, type_doc),
                               northGate={"role": "chuihuamen"}, perimeter=True))
-        courtyards.append(_cy(2, "内院", north=_room("zhengfang", norms),
-            east=_room("xiangfang", norms), west=_room("xiangfang", norms),
+        courtyards.append(_cy(2, "内院", north=_room("zhengfang", norms, type_doc),
+            east=_room("xiangfang", norms, type_doc), west=_room("xiangfang", norms, type_doc),
             peripheral=[{"role": "youlang"}, {"role": "yingbi"}], perimeter=True))
     else:
         # jin >= 3：仅一进→二进设垂花门；内院正房明间为穿堂(南北贯通)，连通下一进；
         #           末进为后院(后罩房)，经穿堂/夹道连通，不设独立门楼。
-        courtyards.append(_cy(1, "外院", south=_south_with_gate(norms),
+        courtyards.append(_cy(1, "外院", south=_south_with_gate(norms, type_doc),
                               northGate={"role": "chuihuamen"}, perimeter=True))
         for k in range(2, jin):
             # 内院：正房明间(中央开间)为穿堂，南北开门连通后院；其余院落边界不设垂花门
-            zf = _room("zhengfang", norms)
+            zf = _room("zhengfang", norms, type_doc)
             zf["chuantang"] = True
             peripheral = [{"role": "youlang"}, {"role": "yingbi"}] if k == 2 else None
             courtyards.append(_cy(k, f"内院{k-1}",
-                north=zf, east=_room("xiangfang", norms),
-                west=_room("xiangfang", norms), peripheral=peripheral, perimeter=True))
+                north=zf, east=_room("xiangfang", norms, type_doc),
+                west=_room("xiangfang", norms, type_doc), peripheral=peripheral, perimeter=True))
         courtyards.append(_cy(jin, "后院",
-            north=_room("houzhaofang", norms), east=_room("xiangfang", norms),
-            west=_room("xiangfang", norms), perimeter=True))
+            north=_room("houzhaofang", norms, type_doc), east=_room("xiangfang", norms, type_doc),
+            west=_room("xiangfang", norms, type_doc), perimeter=True))
 
     # 应用 omit：去掉指定侧的建筑（模拟"去掉某厢房"等变体，验证"去掉建筑→外墙自动补上"）。
     # 纯图谱层声明变更，几何层零改动——这正是 boundarySegmentRealization（院墙环分段实现）模型内禀性质。
@@ -298,7 +365,7 @@ def build_instance(jin, omit=None):
             if nm and nm.get("role") == u_role:
                 nm["usage"] = u_use
 
-    return _wrap(jin, courtyards, rules_doc, type_doc)
+    return _wrap(jin, courtyards, rules_doc, type_doc, dict_doc)
 
 
 def text_to_instance(text):
@@ -540,7 +607,7 @@ def _geo_slab(role, cx, cy, cz, w, h, d):
             "size": {"w": round(w, 3), "h": round(h, 3), "d": round(d, 3)}}
 
 
-def _geo_room(role, cx, cz, W, H, D, open_side=None, norms=None):
+def _geo_room(role, cx, cz, W, H, D, open_side=None, norms=None, spec=None):
     """房间 = 台基(或地面) + 屋顶 + 四壁（朝庭院一侧留门洞，而非整面掏空），内部空心。
 
     ④ 本职：把房间拆成可独立体素化的子构件，而非塞一整个实心长方体。
@@ -554,7 +621,7 @@ def _geo_room(role, cx, cz, W, H, D, open_side=None, norms=None):
     （原「地面」是 dict.构件 里没有的构件名，改判为 taiji 后台基与图谱构件表自洽。）
     """
     t = float(_norms_get(norms, ("room", "thickness"), "房间墙/顶/地厚"))
-    tm = (norms.get(role) or {}).get("taiming")
+    tm = _spec_get(spec, norms, role, "taiming")
     if tm:
         tm = float(tm)
         outset = float(_norms_get(norms, ("room", "taimingOutset"), "台基外扩"))
@@ -643,10 +710,10 @@ def _geo_wing(cx, w, depth, zc, role_obj, open_side, norms):
 
     房间=围合结构，朝庭院一侧留敞口。open_side 由调用方按房屋在院子里的位置给定
     （位于北侧者朝南开口、南侧者朝北）——这是几何事实，不再靠角色名硬判。
-    高度取自 norms.<role>.height（原代码常量 WING_HEIGHT）。
+    高度取自该栋建筑自带 height（回落 norms.<role>.height；原代码常量 WING_HEIGHT）。
     """
     role = role_obj.get("role")
-    return _geo_room(role, cx, zc, w, _role_height(norms, role), depth, open_side, norms)
+    return _geo_room(role, cx, zc, w, _role_height(norms, role, role_obj), depth, open_side, norms, role_obj)
 
 
 def _geo_daozuo(cx, w, sd, zc, role_obj, norms, has_gate):
@@ -659,7 +726,7 @@ def _geo_daozuo(cx, w, sd, zc, role_obj, norms, has_gate):
     if not has_gate:
         return _geo_wing(cx, w, sd, zc, role_obj, "N", norms)
     role = role_obj.get("role")
-    room_h = _role_height(norms, role)                    # 门道高 = 同排普通房高
+    room_h = _role_height(norms, role, role_obj)          # 门道高 = 同排普通房高
     gs = round(float(_norms_get(norms, ("zhaimen", "gateSpan"), "大门门道面阔")), 3)
     gh = round(float(_norms_get(norms, ("zhaimen", "height"), "大门门楼高")), 3)
     margin = float(_norms_get(norms, ("zhaimen", "eastMargin"), "大门东侧与院墙留白"))
@@ -670,7 +737,7 @@ def _geo_daozuo(cx, w, sd, zc, role_obj, norms, has_gate):
     w_main = round(seg_right + w / 2, 3)
     comps = []
     # 西段普通倒座房（朝北留门洞，与内院相对）
-    comps.extend(_geo_room(role, x_main, zc, w_main, room_h, sd, "N", norms))
+    comps.extend(_geo_room(role, x_main, zc, w_main, room_h, sd, "N", norms, role_obj))
     # 东端大门：门道（南=街门、北=内院，双向贯通）+ 门楼（屋顶抬高）
     comps.extend(_geo_room("zhaimen", gate_center, zc, gs, room_h, sd, ["S", "N"], norms))
     comps.extend(_geo_gate_tower("zhaimen", gate_center, zc, gs, room_h, gh, sd, norms))
@@ -680,10 +747,10 @@ def _geo_daozuo(cx, w, sd, zc, role_obj, norms, has_gate):
 def _geo_eastwest(cx, el, ed, zc, role_obj, norms):
     """东西厢：长边沿 Z（面阔），厚沿 X（进深）。
     房间=围合结构，朝庭院中心留敞口：东厢朝西('W')，西厢朝东('E')。
-    高度取自 norms.<role>.height（原代码常量 WING_HEIGHT）。"""
+    高度取自该栋建筑自带 height（回落 norms.<role>.height；原代码常量 WING_HEIGHT）。"""
     role = role_obj.get("role")
     open_side = "W" if cx > 0 else "E"
-    return _geo_room(role, cx, zc, ed, _role_height(norms, role), el, open_side, norms)
+    return _geo_room(role, cx, zc, ed, _role_height(norms, role, role_obj), el, open_side, norms, role_obj)
 
 
 def _xiangfang_length(role_obj, norms, d, nd, sd, modus):
@@ -707,17 +774,17 @@ def _geo_zhengfang_chuantang(cx, w, depth, zc, role_obj, norms):
     门道方向由 KB 的 chuantang 标记驱动（即正房明间过厅），⑤ 实心体素化即可。
     """
     role = role_obj.get("role", "zhengfang")
-    H = _role_height(norms, role)
+    H = _role_height(norms, role, role_obj)
     miankuo = _dim(role_obj, "miankuo", 5)
     bay = (w / miankuo) if miankuo else w            # 每间面阔(米)
     central = min(bay, w * 0.4)                       # 中央明间(约 1 间)，作穿堂
     side = (w - central) / 2
     comps = []
     if side > 0.2:
-        comps.extend(_geo_room(role, cx - (central / 2 + side / 2), zc, side, H, depth, "S", norms))
-        comps.extend(_geo_room(role, cx + (central / 2 + side / 2), zc, side, H, depth, "S", norms))
+        comps.extend(_geo_room(role, cx - (central / 2 + side / 2), zc, side, H, depth, "S", norms, role_obj))
+        comps.extend(_geo_room(role, cx + (central / 2 + side / 2), zc, side, H, depth, "S", norms, role_obj))
     # 中央明间 = 穿堂（南北贯通）
-    comps.extend(_geo_room(role, cx, zc, central, H, depth, ["S", "N"], norms))
+    comps.extend(_geo_room(role, cx, zc, central, H, depth, ["S", "N"], norms, role_obj))
     return comps
 
 
