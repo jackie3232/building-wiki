@@ -18,8 +18,9 @@ server/data/shapes_case6.json
 server/data/shapes_case6.stl
 server/data/*.stl
 
-# 上传的临时图谱
-server/data/_up_*.json
+# server/data 下的临时产物（约定：_ 前缀 = 调试/核验产物、上传的临时图谱等，不入库）
+# 该目录需入库的只有 instances/ 子目录（不以 _ 开头，故不受本条影响）
+server/data/_*
 
 # 运行日志
 server/data/*.log
