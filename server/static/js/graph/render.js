@@ -138,7 +138,8 @@ export function createRenderer(layers, view, dict, meta) {
     const main = el("text", { class: `gr-label${onDot}` }, gLabels);
     main.textContent = n.cat === "domain" ? (TYPE_LABEL[n.role] || n.role)
       : n.cat === "court" ? (n.name || (n.court && n.court.id) || "庭院")
-        : (n.label || sidePrefix + lbl(n.role));
+        : (n.label
+            || (n.hostRole ? sidePrefix + lbl(n.hostRole) + "门" : sidePrefix + lbl(n.role)));
 
     const subText = subtitleOf(n);
     const sub = subText ? el("text", { class: `gr-sub${onDot}` }, gLabels) : null;
