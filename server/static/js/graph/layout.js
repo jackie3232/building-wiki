@@ -19,8 +19,9 @@ import {
   forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation,
 } from "../../vendor/d3-force.js";
 
-/* 节点半径：域 > 院 > 建筑 > 墙/门/附属。建筑另按面阔微调 —— 尺度在图上一眼可读。 */
-const R = { domain: 34, court: 21, building: 15, wall: 11, gate: 10, aux: 10, norms: 14, engine: 14, model: 14 };
+/* 节点半径：域 > 院 > 建筑 > 门 > 附属。建筑另按面阔微调 —— 尺度在图上一眼可读。
+   门（gate）比附属大一号：它是院落边界上的构件，要比影壁这类附属更能被看见。 */
+const R = { domain: 34, court: 21, building: 15, gate: 13, aux: 10 };
 
 export function radiusOf(n) {
   if (n.cat === "building") {
@@ -30,12 +31,20 @@ export function radiusOf(n) {
   return R[n.cat] || 14;
 }
 
-/* 各类关系的理想长度：域→院 撑开骨架，界→院 贴紧，门→界 嵌着，驱动链独成一段。 */
-const LINK_DIST = { zucheng: 168, xulie: 112, weihe: 66, qianzhi: 46, duichen: 132, fushu: 56, qudong: 100 };
+/* 包含关系的理想长度：只有一类关系，但按**被包含者的类别**再分档 —— 包含链越往下越紧凑。
+   域→院 撑开骨架；院→建筑 收紧；附属（影壁）是院内部件，必须贴紧本院，否则斥力
+   会把它甩到别院附近，连线就会骑跨到外院节点上（五进 1440x820 实测 5/5 稳定复现）。
+   门归域，取中等：既与院拉开层次，又不至于飘远。 */
+/* 联通边的距离沿用「同 target.cat 的包含距离」：它与包含边常常连的是同一对节点，
+   两条边力若不一致就会互相拉扯。故此处只是兜底值，实际取用见 applyForces。 */
+const LINK_DIST = { zucheng: 168, liantong: 168 };
+const LINK_DIST_BY_CAT = { court: 210, gate: 150, building: 92, aux: 64, passage: 150 };
 
 const CHARGE = {
-  domain: -620, court: -380, building: -195, wall: -130,
-  gate: -100, aux: -100, norms: -280, engine: -280, model: -280,
+  // gate 的斥力比同尺寸的 aux 大一截：门是全院的出入口，它若被别的建筑夹住，
+  // 「院—门」那条连线就会从夹住它的建筑圆上碾过去（四进实测稳定 1 处）。
+  // 把它推到院落 subtree 的外缘，连线也就自然绕开了。
+  domain: -620, court: -380, building: -195, gate: -300, aux: -100,
 };
 
 const PAD = 30;          // 左右下内边距
@@ -45,19 +54,23 @@ const PAD_TOP = PAD + 34;
 /* 碰撞余量：标签排在圆点正下方，长标签（「东外围围墙」5 字 ≈ 65px）比圆点宽得多。
    碰撞只按圆算的话，节点挤在一起时标签就会互相压字 —— 实测 4 进（27 节点）即触发。
    故余量取到能盖住常见标签的半宽，让 collide 顺带把标签空间一并撑开。 */
-const COLLIDE_PAD = 26;
+const COLLIDE_PAD = 34;
 
 function applyForces(sim, links, k, box) {
   const cx = (box.x0 + box.x1) / 2, cy = (box.y0 + box.y1) / 2;   // 可用区域的中心
   sim.force("link", forceLink(links).id((d) => d.id)
-    .distance((l) => (LINK_DIST[l.rel] || 90) * k)
-    .strength(0.72));
+    .distance((l) => ((l.target && LINK_DIST_BY_CAT[l.target.cat]) || LINK_DIST[l.rel] || 90) * k)
+    // 联通边的弹簧力减到约三成：它与包含边常连同一对节点，力若等强，这一对会被拽得过紧、
+    // 把骨架的层次挤没。动线是叠加在静之上的「用途」，不该改写静的间距。
+    .strength((l) => (l.rel === "liantong" ? 0.26 : 0.72)));
   sim.force("charge", forceManyBody()
     .strength((d) => (CHARGE[d.cat] || -150) * k * k)
     .distanceMax(900 * k));
   sim.force("collide", forceCollide()
     .radius((d) => (radiusOf(d) + COLLIDE_PAD) * k)
-    .iterations(2));
+    // 3 次而非 2：加了动线之后同对节点间常有两层关系，节点更密；迭代少一轮就压不住
+    // 「院—门」这类新连线从别的建筑圆上碾过去（四进 1280x820 实测 1 处骑跨）。
+    .iterations(3));
   sim.force("center", forceCenter(cx, cy));
 }
 
@@ -86,6 +99,54 @@ export function createLayout(model, W, H) {
   for (const l of links) {                     // d3 会把 source/target 就地换成节点对象
     l.source = byId.get(l.source) || l.source;
     l.target = byId.get(l.target) || l.target;
+  }
+
+  const cx0 = (PAD + (W - PAD)) / 2, cy0 = (PAD_TOP + (H - PAD)) / 2;   // 画布可用区中心
+
+  /* 初始布局：域置中，各院按 sequence 绕域均匀排布。
+     纯力导向在节点变多时会把某个院的子树甩到「域→另一院」的连线上 —— 五进实测
+     5/5 稳定复现（domain→cy2 的边穿过第 5 进的建筑圆）。给院一个按次序的径向初值，
+     力导向就从「不缠绕」的构型出发收敛：既是几何修正，也让「第几进」在图上按角度可读。 */
+  const dom = nodes.find((n) => n.cat === "domain");
+  if (dom) { dom.x = cx0; dom.y = cy0; }
+  const courts = nodes.filter((n) => n.cat === "court")
+    .sort((a, b) => ((a.court && a.court.sequence) || 0) - ((b.court && b.court.sequence) || 0));
+  courts.forEach((n, i) => {
+    const ang = -Math.PI / 2 + (2 * Math.PI * i) / Math.max(1, courts.length);
+    n.x = cx0 + Math.cos(ang) * LINK_DIST_BY_CAT.court;
+    n.y = cy0 + Math.sin(ang) * LINK_DIST_BY_CAT.court;
+  });
+  /* 其余节点：绕各自的父节点按索引均匀分散。兄弟若挤在同一侧，「父→兄」的连线就会
+     从弟的圆上碾过去（一进 1024x640 实测：宅门连线穿过影壁圆，d=1.3 / r=10）。 */
+  const kidsOf = new Map();
+  for (const l of links) {
+    if (l.target.x != null) continue;                  // 已在上一步定过初值的不再动
+    if (!kidsOf.has(l.source.id)) kidsOf.set(l.source.id, []);
+    kidsOf.get(l.source.id).push(l.target);
+  }
+  for (const [pid, kids] of kidsOf) {
+    const p = byId.get(pid);
+    if (!p || p.x == null) continue;
+    kids.forEach((n, i) => {
+      const ang = -Math.PI / 2 + (2 * Math.PI * i) / kids.length;
+      const r = LINK_DIST_BY_CAT[n.cat] || LINK_DIST.zucheng;
+      n.x = p.x + Math.cos(ang) * r;
+      n.y = p.y + Math.sin(ang) * r;
+    });
+  }
+
+  /* 嵌于建筑的门（宅门嵌倒座房 / 后门嵌后罩房）：初值贴到它所嵌的那座房子旁，
+     而不是只跟着院——只跟着院的话，力导向会把门甩到「院—另一座建筑」的连线上
+     （三进 1024x640、四进 1280x820 实测：后罩院→后门 的线碾过厢房圆）。
+     注：这只是**布局初值**，力导向仍会重排；side 取自图谱的边界声明，图上不声称方位。 */
+  for (const n of nodes) {
+    if (!n.hostId) continue;
+    const h = byId.get(n.hostId);
+    if (!h || h.x == null) continue;
+    const ang = n.side === "north" ? -Math.PI / 2 : Math.PI / 2;
+    const rr = radiusOf(h) + radiusOf(n) + 26;
+    n.x = h.x + Math.cos(ang) * rr;
+    n.y = h.y + Math.sin(ang) * rr;
   }
 
   const sim = forceSimulation(nodes)

@@ -68,12 +68,12 @@ let currentGraph = null;               // 场上场景所依据的实例图谱�
    这正是 Minecraft 的做法：几何严丝合缝，方块感来自贴图本身。
 
    映射不写死在这里：
-     role → material    取自本次实例图谱的 appliedType.roles.<role>.material
+     role → material    取自本次实例图谱 data 建筑自带 material（改动1 已落到建筑上）
      material → family  取自命名字典 /api/dict 的「材质」类
    两处都在知识中心，前端只做查询，不维护映射表。 */
 const MATERIAL_FAMILY = {};            // material key -> family(贴图文件名)，启动时从 /api/dict 载入
 let roleMaterial = {};                 // role -> material key，随每次场景的图谱刷新
-const FAMILY_FALLBACK = "brick";       // 图谱未声明材质时的兜底（旧图谱无 appliedType 会退化为统一砖面）
+const FAMILY_FALLBACK = "brick";       // 图谱未声明材质(建筑无 material 字段)时的兜底
 
 async function loadKnowledge() {
   try {
@@ -88,10 +88,16 @@ async function loadKnowledge() {
 }
 
 function setGraphMaterials(graph) {
-  const roles = (graph && graph.appliedType && graph.appliedType.roles) || {};
+  // 材质映射改读 data 建筑自带 material（appliedType 已移除：其 level/material 信息在 build_instance
+  // 阶段已落到建筑自身属性上）。遍历各院 enclosure 四向建筑，收集 role -> material。
   roleMaterial = {};
-  for (const [role, spec] of Object.entries(roles)) {
-    if (spec && spec.material) roleMaterial[role] = spec.material;
+  const courts = (graph && graph.data && graph.data.courtyards) || [];
+  for (const c of courts) {
+    const enc = (c && c.enclosure) || {};
+    for (const side of ["north", "south", "east", "west"]) {
+      const b = enc[side];
+      if (b && b.role && b.material) roleMaterial[b.role] = b.material;
+    }
   }
 }
 

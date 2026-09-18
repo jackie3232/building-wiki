@@ -13,20 +13,12 @@
   --g-dot-domain:    #5b8fd0;  --g-dot-domain-e:    #4a7cba;
   --g-dot-court:     #a8cdf2;  --g-dot-court-e:     #82b0de;
   --g-dot-building:  #c8ddf4;  --g-dot-building-e:  #9dbfe2;
-  --g-dot-wall:      #e2e9f1;  --g-dot-wall-e:      #c4cfdb;
   --g-dot-gate:      #f2ce93;  --g-dot-gate-e:      #d9a85f;
   --g-dot-aux:       #d8d0f2;  --g-dot-aux-e:       #b3a7de;
-  --g-dot-norms:     #f2ce93;  --g-dot-norms-e:     #d9a85f;
-  --g-dot-engine:    #c9e4d1;  --g-dot-engine-e:    #9cc4a8;
-  --g-dot-model:     #a8cdf2;  --g-dot-model-e:     #82b0de;
-  /* 七类关系各一色 */
-  --g-rel-zucheng: #c9d4e2;    /* 组成：退成骨架 */
-  --g-rel-xulie:   #378add;    /* 序列：有向 */
-  --g-rel-weihe:   #185fa5;    /* 围合：最实的一笔 */
-  --g-rel-qianzhi: #ba7517;    /* 嵌于：门 */
-  --g-rel-duichen: #1d9e75;    /* 对称：双向 */
-  --g-rel-fushu:   #7f77dd;    /* 附属：虚 */
-  --g-rel-qudong:  #d85a30;    /* 驱动：链路，最抢眼 */
+  --g-dot-passage:   #f0b46a;  --g-dot-passage-e:   #d98f3f;  /* 过厅：与门/动线同琥珀色系 */
+  /* 单一关系配色 */
+  --g-rel-zucheng: #c9d4e2;    /* 包含：退成骨架 */
+  --g-rel-liantong: #e0a15e;   /* 联通（动线）：琥珀虚线，与门节点同色系 */
   --g-label:       #5b6678;
   --g-label-strong:#33405a;
 }
@@ -223,12 +215,11 @@ body.graphing #tour-hud { display: none; }   /* 标题行接替顶部标识的�
    线的粗细/虚实分工：组成最轻（骨架），围合最实，序列带方向，附属与驱动用虚线。 */
 .gr-edge { fill: none; stroke-linecap: round; }
 .gr-rel-zucheng { stroke: var(--g-rel-zucheng); stroke-width: 0.8; }
-.gr-rel-xulie   { stroke: var(--g-rel-xulie);   stroke-width: 1.1; }
-.gr-rel-weihe   { stroke: var(--g-rel-weihe);   stroke-width: 1; }
-.gr-rel-qianzhi { stroke: var(--g-rel-qianzhi); stroke-width: 1; }
-.gr-rel-duichen { stroke: var(--g-rel-duichen); stroke-width: 1; }
-.gr-rel-fushu   { stroke: var(--g-rel-fushu);   stroke-width: 0.9; stroke-dasharray: 3 2.5; }
-.gr-rel-qudong  { stroke: var(--g-rel-qudong);  stroke-width: 1.5; stroke-dasharray: 5.5 3.5; }
+/* 联通（动线）：虚线 + 弧线，与包含的实直线区分开——静为骨、动为用，一眼可分两层 */
+.gr-rel-liantong {
+  stroke: var(--g-rel-liantong); stroke-width: 1.1;
+  stroke-dasharray: 5 4; opacity: 0.85;
+}
 
 .gr-node { cursor: grab; }
 .gr-node.is-drag { cursor: grabbing; }
@@ -236,12 +227,9 @@ body.graphing #tour-hud { display: none; }   /* 标题行接替顶部标识的�
 .gr-cat-domain   > .gr-dot { fill: var(--g-dot-domain);   stroke: var(--g-dot-domain-e); }
 .gr-cat-court    > .gr-dot { fill: var(--g-dot-court);    stroke: var(--g-dot-court-e); }
 .gr-cat-building > .gr-dot { fill: var(--g-dot-building); stroke: var(--g-dot-building-e); }
-.gr-cat-wall     > .gr-dot { fill: var(--g-dot-wall);     stroke: var(--g-dot-wall-e); }
 .gr-cat-gate     > .gr-dot { fill: var(--g-dot-gate);     stroke: var(--g-dot-gate-e); }
 .gr-cat-aux      > .gr-dot { fill: var(--g-dot-aux);      stroke: var(--g-dot-aux-e); }
-.gr-cat-norms    > .gr-dot { fill: var(--g-dot-norms);    stroke: var(--g-dot-norms-e); }
-.gr-cat-engine   > .gr-dot { fill: var(--g-dot-engine);   stroke: var(--g-dot-engine-e); }
-.gr-cat-model    > .gr-dot { fill: var(--g-dot-model);    stroke: var(--g-dot-model-e); }
+.gr-cat-passage  > .gr-dot { fill: var(--g-dot-passage);  stroke: var(--g-dot-passage-e); }
 
 /* 标签一律排在圆点正下方居中 —— 布局持续微动时，正下方是唯一不左右横跳的排法 */
 .gr-label {
@@ -286,9 +274,4 @@ body.graphing #tour-hud { display: none; }   /* 标题行接替顶部标识的�
 .gr-legend-item.is-on { background: rgba(76, 126, 243, 0.13); color: var(--text); }
 .gr-swatch { flex: none; width: 24px; height: 0; border-top-width: 2px; border-top-style: solid; }
 .gr-swatch.gr-rel-zucheng { border-color: var(--g-rel-zucheng); }
-.gr-swatch.gr-rel-xulie   { border-color: var(--g-rel-xulie); }
-.gr-swatch.gr-rel-weihe   { border-color: var(--g-rel-weihe); }
-.gr-swatch.gr-rel-qianzhi { border-color: var(--g-rel-qianzhi); }
-.gr-swatch.gr-rel-duichen { border-color: var(--g-rel-duichen); }
-.gr-swatch.gr-rel-fushu   { border-color: var(--g-rel-fushu); border-top-style: dashed; }
-.gr-swatch.gr-rel-qudong  { border-color: var(--g-rel-qudong); border-top-style: dashed; }
+.gr-swatch.gr-rel-liantong { border-color: var(--g-rel-liantong); border-top-style: dashed; }

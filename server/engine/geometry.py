@@ -19,7 +19,7 @@
 
 设计铁律（见 架构设计总览.md §7/§9/§14、几何计算引擎IO契约.md）：
 - 零坐标：instance 不含 x/y/z；④ 据「间」模数与拓扑算绝对坐标（④ 本职）。
-- ④ 只吃 instance（data + appliedRules + appliedType），模数/尺度等换算标准全部从图谱取，无一硬编码。
+- ④ 只吃 instance（data + appliedRules），模数/尺度等换算标准全部从图谱取，无一硬编码。
 - 输出是「构件」不是「box」也不是「空间」；构件 : box = 图像 : 像素（box 由 ⑤ 多体素化）。
 - ⑤ 只做造型策略（MVP = 无 B-rep 的 BOX 体素），未来可切 Box/Brep 等基元，不污染 ④。
 """
@@ -96,7 +96,11 @@ def _room(role, norms, type_doc=None):
     t = ((type_doc or {}).get("roles") or {}).get(role, {}) or {}
     r = {"role": role,
          "miankuo": n.get("miankuo", 5),
-         "jinshen": n.get("jinshen", 3)}
+         "jinshen": n.get("jinshen", 3),
+         # 朝院门洞：各房门窗均向院内开辟，门在明间(正中开间)。
+         # **开向不进图谱**——它由房屋所在侧推得（北房朝南、南房朝北、东厢朝西、西厢朝东），
+         # 属几何事实；写进图谱就变成引擎级动作了。动线(liantong)据此声明「院↔房」可通。
+         "door": {"at": "mingjian"}}
     for k in ("height", "taiming"):
         if n.get(k) is not None:
             r[k] = n[k]
@@ -131,15 +135,53 @@ def _cy(seq, name, north=None, south=None, east=None, west=None,
     return c
 
 
-def _snapshot_rules(rules_doc):
-    """规则库 -> appliedRules 快照（深拷贝，保证 instance 自包含、可独立复现）。
+# ④ 实际消费的 norms 路径前缀：appliedRules 只保留这些前缀下的整棵子树，其余裁掉。
+# 来源：grep 全文件 _norms_get(norms, (...)) 与 norms.get(...) 汇总——
+#   modus / courtDepthRatio（整体）
+#   room.{thickness,taimingOutset,heightDefault} / door.{width,height}
+#   zhaimen.{gateSpan,height,eastMargin} / houmen.{gateSpan,westMargin} / layout.xiangfang
+#   chuihuamen.{gateSpan,height,depth} / peripheral.{youlang,yingbi} / wall.{height,thickness}
+#   逐角色：zhengfang/xiangfang/daozuofang/houzhaofang 的 height & taiming
+#           （zhaimen/chuihuamen 的 height 经 _role_height 回落读取，一并保留其整棵子树）
+_NORMS_KEEP_PREFIXES = [
+    ("modus",), ("courtDepthRatio",),
+    ("room",), ("door",), ("zhaimen",), ("houmen",), ("layout",), ("chuihuamen",),
+    ("peripheral",), ("wall",),
+    ("zhengfang",), ("xiangfang",), ("daozuofang",), ("houzhaofang",),
+]
 
-    ④ 不再为任何规制数字提供代码兜底，故此处也不补齐缺字段——缺了回知识中心补。
+
+def _keep_subtree(src, prefix):
+    """从 norms 取 prefix 路径下的整棵子树；任一节点缺失则返回 None（该前缀本就不被此院用到）。"""
+    cur = src
+    for k in prefix:
+        if not isinstance(cur, dict) or k not in cur:
+            return None
+        cur = cur[k]
+    return cur
+
+
+def _snapshot_rules(rules_doc):
+    """规则库 -> appliedRules 快照：只保留 ④ 实际消费的 norms 子树，无关词条全裁。
+
+    仍是深拷贝，instance 自包含、可脱离知识中心独立复现；但不再夹带 orientation / position /
+    usage / sequence / wall 等 ④ 不读的整段规制与文字说明。裁错路径会被 _norms_get 的「缺失即报错」
+    立刻暴露，所以裁剪是零风险 + 可验证的（每次改完跑零漂移复核）。
     """
-    snap = json.loads(json.dumps(rules_doc))
-    if not isinstance(snap.get("norms"), dict) or "modus" not in snap["norms"]:
+    rules = rules_doc if isinstance(rules_doc, dict) else json.loads(json.dumps(rules_doc))
+    full = rules.get("norms", {})
+    if not isinstance(full, dict) or "modus" not in full:
         raise ValueError("图谱缺陷：siheyuan.rules 缺少 norms.modus")
-    return snap
+    trimmed = {}
+    for prefix in _NORMS_KEEP_PREFIXES:
+        sub = _keep_subtree(full, prefix)
+        if sub is None:
+            continue
+        d = trimmed
+        for k in prefix[:-1]:
+            d = d.setdefault(k, {})
+        d[prefix[-1]] = sub
+    return {"norms": trimmed}
 
 
 def _norms_get(norms, path, ctx=""):
@@ -226,15 +268,18 @@ def _extract_dict(dict_doc, *docs):
     return out
 
 
-def _wrap(jin, courtyards, rules_doc, type_doc=None, dict_doc=None):
-    """instance = data（实例图谱）+ appliedDict / appliedRules / appliedType（用到的附属知识）。
+def _wrap(jin, courtyards, rules_doc, dict_doc=None):
+    """instance = data（实例图谱）+ appliedDict / appliedRules（用到的附属知识）。
 
-    三个附属块都是知识中心的**按需子集**：只带解释本实例用得到的部分，无关的不带。
+    两个附属块都是知识中心的**按需子集**：只带解释本实例用得到的部分，无关的不带。
+    - appliedRules：只保留 ④ 实际消费的 norms 子树（见 _snapshot_rules）。
+    - appliedDict：只保留被用到的词条（见 _extract_dict）。
+    类型图谱(appliedType) 已移除——它的信息（每角色 level/material）在 build_instance 阶段
+    已落到 data 建筑自带属性上，④ 不再读类型图谱，故 instance 不必再携带它。
     仍为深拷贝，使 instance 自包含、可脱离知识中心独立复现。
     """
     data = {"type": "siheyuan", "jin": jin, "courtyards": courtyards}
     rules_snap = _snapshot_rules(rules_doc)
-    type_snap = json.loads(json.dumps(type_doc)) if type_doc is not None else None
     inst = {
         "meta": {
             "type": "siheyuan",
@@ -245,11 +290,9 @@ def _wrap(jin, courtyards, rules_doc, type_doc=None, dict_doc=None):
         "data": data,
         "appliedRules": rules_snap,
     }
-    if type_snap is not None:
-        inst["appliedType"] = type_snap
     if dict_doc is not None:
-        # 裁剪输入 = 主内容 + 两个附属快照（它们引用的词同样算「用到了」）
-        inst["appliedDict"] = _extract_dict(dict_doc, data, type_snap, rules_snap)
+        # 裁剪输入 = 主内容 + 附属 rules 快照（它们引用的词同样算「用到了」）
+        inst["appliedDict"] = _extract_dict(dict_doc, data, rules_snap)
     return inst
 
 
@@ -261,32 +304,68 @@ def build_instance(jin, omit=None):
     norms = rules_doc.get("norms", {})
     courtyards = []
 
+    # 院落名一律从命名字典取 label（字典驱动），代码内不硬编码中文串；取不到时回落兜底名。
+    def _cl(cat, key, dflt):
+        v = (dict_doc.get(cat) or {}).get(key)
+        return ((v or {}).get("label") if isinstance(v, dict) else None) or dflt
+
+    N_TINGYUAN = _cl("空间角色", "tingyuan", "庭院")
+    N_WAI = _cl("院落", "waiyuan", "外院")
+    N_NEI = _cl("院落", "neiyuan", "内院")
+    N_HOU = _cl("院落", "houzhaoyuan", "后罩院")
+    N_TINGFANG = _cl("院落", "tingfangyuan", "厅房院")
+    CN_ORD = {2: "二", 3: "三", 4: "四", 5: "五"}
+
+    def _mid_name(k, jin):
+        """中间进(2..jin-1)的院名，按身份不按进号：
+        前堂后寝——jin>=4 时第二进为厅房院(前堂)，其北第一进为主院(内院·后寝)，
+        再北的次院依序记「内院·二/三」。三进无前堂，第二进即主院。"""
+        if jin >= 4 and k == 2:
+            return N_TINGFANG
+        if (jin >= 4 and k == 3) or (jin == 3 and k == 2):
+            return N_NEI
+        return "%s·%s" % (N_NEI, CN_ORD.get(k - 2, str(k - 2)))
+
     if jin <= 1:
-        courtyards.append(_cy(1, "正院",
+        # 一进：无垂花门、无内外之分，此院既是入口院也是主院。影壁正对宅门 → 归此院。
+        # 游廊暂不生成：抄手游廊是内院环形通道的细部做法，留待「加细节」阶段单独讨论其形制与归属。
+        courtyards.append(_cy(1, N_TINGYUAN,
             north=_room("zhengfang", norms, type_doc), south=_south_with_gate(norms, type_doc),
             east=_room("xiangfang", norms, type_doc), west=_room("xiangfang", norms, type_doc),
-            peripheral=[{"role": "youlang"}, {"role": "yingbi"}], perimeter=True))
+            peripheral=[{"role": "yingbi"}], perimeter=True))
     elif jin == 2:
-        courtyards.append(_cy(1, "外院", south=_south_with_gate(norms, type_doc),
-                              northGate={"role": "chuihuamen"}, perimeter=True))
-        courtyards.append(_cy(2, "内院", north=_room("zhengfang", norms, type_doc),
+        # 影壁正对宅门 → 归首院（外院）。游廊暂不生成（见上）。
+        courtyards.append(_cy(1, N_WAI, south=_south_with_gate(norms, type_doc),
+                              northGate={"role": "chuihuamen"},
+                              peripheral=[{"role": "yingbi"}], perimeter=True))
+        courtyards.append(_cy(2, N_NEI, north=_room("zhengfang", norms, type_doc),
             east=_room("xiangfang", norms, type_doc), west=_room("xiangfang", norms, type_doc),
-            peripheral=[{"role": "youlang"}, {"role": "yingbi"}], perimeter=True))
+            peripheral=None, perimeter=True))
     else:
-        # jin >= 3：仅一进→二进设垂花门；内院正房明间为穿堂(南北贯通)，连通下一进；
-        #           末进为后院(后罩房)，经穿堂/夹道连通，不设独立门楼。
-        courtyards.append(_cy(1, "外院", south=_south_with_gate(norms, type_doc),
-                              northGate={"role": "chuihuamen"}, perimeter=True))
+        # jin >= 3：仅一进→二进设垂花门；其余院际边界**不设独立门楼** —— 由本进正房明间
+        #           做穿堂（南北贯通）连通下一进。穿堂是正房的一种做法，随正房归属本院，
+        #           **不是门**（故图谱记 ring.south.thru，不记 gate）。末进为后罩院。
+        # 影壁归首院（正对宅门）。游廊暂不生成（见上）。
+        courtyards.append(_cy(1, N_WAI, south=_south_with_gate(norms, type_doc),
+                              northGate={"role": "chuihuamen"},
+                              peripheral=[{"role": "yingbi"}], perimeter=True))
         for k in range(2, jin):
-            # 内院：正房明间(中央开间)为穿堂，南北开门连通后院；其余院落边界不设垂花门
+            # 中间进：正房明间(中央开间)为穿堂，南北开门连通下一进；其余院落边界不设垂花门。
+            #         穿堂是这座正房的做法 → 归属本院，不立门实体（见 _geo_zhengfang_chuantang）。
             zf = _room("zhengfang", norms, type_doc)
             zf["chuantang"] = True
-            peripheral = [{"role": "youlang"}, {"role": "yingbi"}] if k == 2 else None
-            courtyards.append(_cy(k, f"内院{k-1}",
+            peripheral = None
+            courtyards.append(_cy(k, _mid_name(k, jin),
                 north=zf, east=_room("xiangfang", norms, type_doc),
                 west=_room("xiangfang", norms, type_doc), peripheral=peripheral, perimeter=True))
-        courtyards.append(_cy(jin, "后院",
-            north=_room("houzhaofang", norms, type_doc), east=_room("xiangfang", norms, type_doc),
+        # 后门（houmen）：后罩房西北角一间改门道，通北胡同，与宅门「一间改门道」同法、东西相对。
+        # 文献上它是条件性的（宅后临街才设）；本应用按三进典型**默认设**——三进总长 50~60m
+        # 恰等于北京两条胡同间距，「大门面南胡同、后门面北胡同」即典型三进格局（用户 2026-09-18 定）。
+        # 后罩房只出现在 jin>=3 的末进，故一/二进自然无后门，不需另加开关。
+        hzf = _room("houzhaofang", norms, type_doc)
+        hzf["gate"] = {"role": "houmen"}
+        courtyards.append(_cy(jin, N_HOU,
+            north=hzf, east=_room("xiangfang", norms, type_doc),
             west=_room("xiangfang", norms, type_doc), perimeter=True))
 
     # 应用 omit：去掉指定侧的建筑（模拟"去掉某厢房"等变体，验证"去掉建筑→外墙自动补上"）。
@@ -299,22 +378,38 @@ def build_instance(jin, omit=None):
             if role and f"{role}_{side}" in omit:
                 enc[side] = None
 
-    # 标注每进角色(front/main/back)，对齐自然语言「前院/主院/后院」层级描述
-    # main = 最靠南(序列最小)的正房院；main 之前=front(前院)，之后=back(后院)
+    # 用途(usage)：图谱声明「某角色在某情形下作何用途」——如四进院第二进院正位房作过厅。
+    # role 不变、只多一个用途语义（可逆：usage=guoting ⇄「过厅」）。
+    # ④ 不自行判断谁是过厅，只按 rules.usage 落字段（图谱驱动）。
+    # 必须在 role 标注之前执行——否则主院判定看不到过厅标记，会把「前堂」误当主院。
+    for u in (rules_doc.get("usage") or []):
+        u_role, u_use, u_at, u_cond = u.get("role"), u.get("usage"), u.get("at"), u.get("when")
+        if not u_role or not u_use or not u_at or not _jin_cond_ok(u_cond, jin):
+            continue
+        if u_at == "erjinyuan_zhengwei":
+            target = (courtyards[1].get("enclosure") or {}) if len(courtyards) > 1 else {}
+            nm = target.get("north")
+            if nm and nm.get("role") == u_role:
+                nm["usage"] = u_use
+
+    # 标注每进角色(front/main/back)，对齐自然语言「外院/内院/后罩院」层级描述
+    # main = 正房所在的主院（后寝）：取最靠南的正房院，但**跳过作过厅的那一进**——
+    #       过厅是「前堂」，其正位房虽仍 role=zhengfang，却非后寝主院（前堂后寝，据 rules.usage）。
+    # main 之前=front（外院/厅房院），之后=back（后罩院及其前的次院）
     main_idx = None
     for i, c in enumerate(courtyards):
         enc = c.get("enclosure", {}) or {}
         north = enc.get("north") or {}
-        if north.get("role") == "zhengfang":
+        if north.get("role") == "zhengfang" and north.get("usage") != "guoting":
             main_idx = i
             break
     for i, c in enumerate(courtyards):
-        if main_idx is None:
+        if main_idx is None or i == main_idx:
             c["role"] = "main"
         elif i < main_idx:
-            c["role"] = "front"
-        elif i == main_idx:
-            c["role"] = "main"
+            north = (c.get("enclosure") or {}).get("north") or {}
+            # 作过厅的那一进是「前堂」(厅房院)，进深介于外院与主院之间，故单列 qiantang
+            c["role"] = "qiantang" if north.get("usage") == "guoting" else "front"
         else:
             c["role"] = "back"
 
@@ -332,40 +427,35 @@ def build_instance(jin, omit=None):
         if enc.get("northGate"):
             n_prov, n_kind, n_gate = None, "kaziqiang", "chuihuamen"
         else:
-            n_prov, n_kind, n_gate = nr, ("houyanqiang" if nr else "weiqiang"), None
+            # north.gate = 嵌在本院北房上的对外门（后门），与首院 south.gate=宅门 对称：
+            # 它不是独立门屋，而是「把后罩房西北角那间改成门道」，故 provider 仍是该建筑。
+            ngate = ((enc.get("north") or {}).get("gate") or {}).get("role")
+            n_prov, n_kind, n_gate = nr, ("houyanqiang" if nr else "weiqiang"), ngate
         # south 侧：idx0=倒座后檐墙；否则上一进北墙承担（门洞随上一进对齐）
         if i == 0:
-            s_prov, s_kind, s_gate = sr, ("houyanqiang" if sr else "weiqiang"), (
-                "zhaimen" if (enc.get("south") or {}).get("gate") else None)
+            s_prov, s_kind, s_gate, s_thru = sr, ("houyanqiang" if sr else "weiqiang"), (
+                "zhaimen" if (enc.get("south") or {}).get("gate") else None), None
         else:
             s_prov, s_kind = prev_nr, ("houyanqiang" if prev_nr else "weiqiang")
             if prev_enc.get("northGate"):
-                s_gate = "chuihuamen"
+                s_gate, s_thru = "chuihuamen", None
             elif (prev_enc.get("north") or {}).get("chuantang"):
-                s_gate = "chuantang"
+                # 穿堂**不是门**：它是上一进北房「明间前后贯通」的做法，属于那座正房、
+                # 随正房归属上一进院（有明确归属，不立门实体）。
+                # 故 gate=Null，另记 thru：只声明「经何物进入本院」，供联通视图与巡游读取。
+                s_gate, s_thru = None, {"via": "chuantang", "of": prev_nr,
+                                        "courtyard": courtyards[i - 1].get("name")}
             else:
-                s_gate = None
+                s_gate, s_thru = None, None
         c["ring"] = {
             "north": {"provider": n_prov, "kind": n_kind, "gate": n_gate},
-            "south": {"provider": s_prov, "kind": s_kind, "gate": s_gate},
+            # south.gate = 真正的门（宅门/垂花门）；south.thru = 经上一进正房明间穿堂进入（不是门）。
+            "south": {"provider": s_prov, "kind": s_kind, "gate": s_gate, "thru": s_thru},
             "east":  {"provider": er, "kind": "houyanqiang" if er else "weiqiang"},
             "west":  {"provider": wr, "kind": "houyanqiang" if wr else "weiqiang"},
         }
 
-    # 用途(usage)：图谱声明「某角色在某情形下作何用途」——如四进院第二进院正位房作过厅。
-    # role 不变、只多一个用途语义（故零几何漂移，可逆：usage=guoting ⇄「过厅」）。
-    # ④ 不自行判断谁是过厅，只按 rules.usage 落字段（图谱驱动）。
-    for u in (rules_doc.get("usage") or []):
-        u_role, u_use, u_at, u_cond = u.get("role"), u.get("usage"), u.get("at"), u.get("when")
-        if not u_role or not u_use or not u_at or not _jin_cond_ok(u_cond, jin):
-            continue
-        if u_at == "erjinyuan_zhengwei":
-            target = (courtyards[1].get("enclosure") or {}) if len(courtyards) > 1 else {}
-            nm = target.get("north")
-            if nm and nm.get("role") == u_role:
-                nm["usage"] = u_use
-
-    return _wrap(jin, courtyards, rules_doc, type_doc, dict_doc)
+    return _wrap(jin, courtyards, rules_doc, dict_doc)
 
 
 def text_to_instance(text):
@@ -431,7 +521,7 @@ def _layout(instance):
 def compute_geometry(instance):
     """④ 几何计算：instance -> 构件列表。每个构件 = {role, center:{x,y,z}, size:{w,h,d}}。
 
-    - 只读 instance（data + appliedRules + appliedType），不硬编码任何规制数字。
+    - 只读 instance（data + appliedRules），不硬编码任何规制数字。
     - 输出是构件（连续几何），不是 box、不是空间。庭院虚空不输出。
     """
     plotted, norms, modus = _layout(instance)
@@ -445,7 +535,11 @@ def compute_geometry(instance):
 
         if p["north"]:
             nrole = p["north"]
-            if (nrole or {}).get("chuantang"):
+            ngate = ((nrole or {}).get("gate") or {}).get("role")
+            if ngate:
+                # 对外门嵌在北房里（后门 = 西北角一间改门道）→ 拆「东段普通房 + 西端贯通门道」
+                geometry.extend(_geo_back_gate(0, w, nd, zc + d / 2 - nd / 2, nrole, ngate, norms))
+            elif (nrole or {}).get("chuantang"):
                 geometry.extend(_geo_zhengfang_chuantang(0, w, nd, zc + d / 2 - nd / 2, nrole, norms))
             else:
                 # 北侧房屋朝南开口（庭院在南）——开口朝向由房屋所在侧决定，不靠角色名硬判
@@ -476,6 +570,8 @@ def compute_geometry(instance):
             geometry.extend(_geo_chuihua(gz, w, _role_of(enc["southGate"], "chuihuamen"), norms))
 
         # 围合构件（实体）：游廊 / 影壁
+        # 注：游廊分支当前**不启用** —— 各进 peripheral 已不再声明 youlang（留待加细节阶段讨论形制与归属）。
+        #     分支与其实现 _geo_youlang 一并保留，便于届时直接恢复，不要当成死代码删掉。
         for per in (p["c"].get("peripheral") or []):
             if not isinstance(per, dict):
                 continue
@@ -535,18 +631,23 @@ def build_tour_path(instance, comps=None):
         z_south = zc - d / 2
         z_court = zc + (sd - nd) / 2.0        # 露天庭院中心（与 ④ 厢房的 ew_z 同源）
 
-        # —— 进院门：穿过本院的南界（首院=东南角宅门；余院=上一院北界的垂花门/穿堂）——
+        # —— 进院：仅首院有对外宅门（东南角）。其余院是「经上一院北界」进入的，
+        #      其路径点已落在上一院的「出下道门」段（垂花门 / 穿堂北口），此处不重复 ——
         if i == 0:
             if (enc.get("south") or {}).get("gate"):
                 gz = z_south + sd / 2.0                    # 宅门门道轴线（嵌在倒座房进深内）
                 path.append({"x": gate_x, "z": round(z_south - TOUR_OUTSIDE, 3),
                              "y": 0.0, "label": "宅门外"})
                 path.append({"x": gate_x, "z": round(gz, 3), "y": TOUR_STEP, "label": "穿过大门"})
-                z_in = z_south + sd + 0.6                  # 出倒座后檐入庭院，且避开影壁/厢房之南
+                # 出倒座后檐入庭院，走「影壁南面 ↔ 倒座北檐」这条东西向走道的中心：
+                #   倒座北檐 = 南界+sd；影壁南面 = 南界+sd+zOffset-厚/2（zOffset=2.0 → +1.75）。
+                #   走道 [+0.5, +1.75]，取中心 +1.0 —— 人体半宽 0.25 在 0.5m 占据格下两侧均有余量。
+                #   （旧值 +0.6 是 zOffset=1.2 时走道仅 0.95m 的窄缝，实测巡游擦碰倒座/影壁。）
+                z_in = z_south + sd + 1.0
                 r = min(TOUR_CORNER_R, z_court - z_in - 0.45)   # 过渡半径受院深受限（外院很浅时会收小）
                 if abs(gate_x) > 0.01 and r >= 0.25:       # 宅门偏东南，需横向折回中轴
                     # 只切「中轴」那个拐点：门后那个 90° 转没有余量可切——影壁正对宅门，
-                    # 倒座房北檐与影壁南面之间只有约 0.95m 走道，往里切就退回门道/影壁里。
+                    # 只能沿走道先向西绕到中轴，再北进（文献：进门迎面影壁，向西经屏门入内院）。
                     # 过渡点属坐标层，不进图谱、不标站名。
                     path.append({"x": gate_x, "z": round(z_in, 3), "y": 0.0,
                                  "label": f"进入{name}"})
@@ -583,16 +684,25 @@ def build_tour_path(instance, comps=None):
                          "look": [0.0, round(z_north + 2.0, 3)]})
             path.append({"x": 0.0, "z": round(z_north, 3), "y": TOUR_STEP, "label": "穿过垂花门"})
         elif (p["north"] or {}).get("chuantang"):
-            # 站名跟着图谱「用途」走：四进院第二进院正位房 usage=guoting（过厅，前堂），
-            # 其余为普通正房。故不再硬编码「正房穿堂」——图谱一变，站名自动跟着变。
+            # 与图谱「过厅(passage)」节点同源：正房明间南北贯通，是内院↔后院之间的载体(非门)。
+            # 巡游显式为两道门三段：内院 →(南门·明间)→ 过厅 →(北门·穿堂)→ 后院，
+            # 与图谱过厅节点的「第一道门·南门(明间) / 第二道门·北门(穿堂)」完全对齐。
+            # 坐标与改动前完全一致(仅补语义标签与驻足)，零穿实体结论不受影响。
             nm = p["north"] or {}
-            hall = USAGE_LABELS.get(nm.get("usage")) or ROLE_LABELS.get(nm.get("role"), "正房")
+            # 穿堂正房即过厅(guoting)，与图谱 passage 节点同义；图谱不区分是否 qiantang，统一标「过厅」。
+            hall = USAGE_LABELS.get(nm.get("usage")) or "过厅"
+            next_name = plotted[i + 1]["c"].get("name") or f"第{i + 2}进" if i + 1 < len(plotted) else ""
+            # 第一道门：南门(明间)——从内院进过厅（落脚台基面，避免踩墙/门槛）
             path.append({"x": 0.0, "z": round(z_north - nd, 3), "y": TOUR_STEP,
-                         "label": f"{hall}前檐"})
+                         "label": f"南门(明间)·进{hall}", "pause": TOUR_PAUSE,
+                         "look": [0.0, round(z_north - nd / 2.0, 3)]})
+            # 过厅（明间穿堂）过渡点：穿行其间
             path.append({"x": 0.0, "z": round(z_north - nd / 2.0, 3), "y": TOUR_STEP,
-                         "label": f"穿过{hall}穿堂"})
+                         "label": f"{hall}"})
+            # 第二道门：北门(穿堂)——出过厅达后院
             path.append({"x": 0.0, "z": round(z_north, 3), "y": TOUR_STEP,
-                         "label": f"{hall}穿堂北口"})
+                         "label": f"北门(穿堂)·出到{next_name}", "pause": TOUR_PAUSE,
+                         "look": [0.0, round(z_north + 2.0, 3)]})
         else:
             path.append({"x": 0.0, "z": round(z_north - TOUR_DOOR_DEPTH_HALF, 3), "y": 0.0,
                          "label": "院北门前"})
@@ -744,6 +854,30 @@ def _geo_daozuo(cx, w, sd, zc, role_obj, norms, has_gate):
     return comps
 
 
+def _geo_back_gate(cx, w, depth, zc, role_obj, gate_role, norms):
+    """末进北房（后罩房）带后门：拆为「东段普通后罩房 + 西端后门间(南北贯通)」。
+
+    与 _geo_daozuo（倒座房带宅门）同法、东西对称，两点差异：
+      · 门在西端（西北角）而非东端——见 rules.position.houmen：后门开在院落西北角。
+      · 不带门楼：后门是「一间改门道」的随墙小门，门道高 = 同排后罩房高（不单列 height）。
+    门洞的开缺在 _geo_wall_ring 的 ns_wall(gate="houmen") 分支里同步做——否则墙环会把
+    这段贯通门道堵死（门道北面本就是敞口，没有建筑墙可供 _resolve_boundary 替换）。
+    """
+    role = role_obj.get("role")
+    room_h = _role_height(norms, role, role_obj)          # 门道高 = 同排普通房高
+    gs = round(float(_norms_get(norms, ("houmen", "gateSpan"), "后门门道面阔")), 3)
+    margin = float(_norms_get(norms, ("houmen", "westMargin"), "后门西侧与院墙留白"))
+    gs = round(min(gs, w - 0.6), 3)                       # 后门段不超后罩房总面阔
+    gate_center = round(cx - (w / 2 - gs / 2 - margin), 3)  # 西北角留白
+    seg_left = gate_center + gs / 2                      # 东段左边界（=门右缘）
+    x_main = round((seg_left + w / 2) / 2, 3)
+    w_main = round(w / 2 - seg_left, 3)
+    comps = []
+    comps.extend(_geo_room(role, x_main, zc, w_main, room_h, depth, "S", norms, role_obj))
+    comps.extend(_geo_room(gate_role, gate_center, zc, gs, room_h, depth, ["S", "N"], norms))
+    return comps
+
+
 def _geo_eastwest(cx, el, ed, zc, role_obj, norms):
     """东西厢：长边沿 Z（面阔），厚沿 X（进深）。
     房间=围合结构，朝庭院中心留敞口：东厢朝西('W')，西厢朝东('E')。
@@ -809,6 +943,9 @@ def _geo_chuihua(zc, w, role, norms):
 def _geo_youlang(w, nd, zc, d, norms):
     """游廊：正房前檐的柱廊——柱列 + 廊顶，通透无实墙（抄手游廊的直段）。
 
+    【当前不启用】各进 peripheral 未声明 youlang，故本函数暂不产生体素；
+    留待「加细节」阶段确定抄手游廊的形制与归属后恢复。保留实现，勿删。
+
     廊与院墙不同：不围合，只提供有顶通道。中轴穿堂口按 norms.door.width 断开，
     让出正房明间南北通行的门道（否则就成了堵在正房前的一堵墙）。
     尺寸全部取自 norms.peripheral.youlang（原为代码内联魔法数字）。
@@ -858,7 +995,7 @@ def _geo_wall(cx, cz, width_x, H, depth_z, role):
 
 def _geo_wall_ring(c, w, zc, d, norms, draw_south=True):
     """院墙环：先实例化「完整一圈墙」，不预判任何建筑位置（boundarySegmentRealization）。
-    - 北/南按 gate 开缺（zhaimen 东南角 / chuihuamen·chuantang 中段）。
+    - 北/南按 gate 开缺（zhaimen 东南角 / chuihuamen 中段 / houmen 西北角）。穿堂不在此开缺（它不是门）。
     - 东西墙先画整段；贴边建筑（后檐墙/山墙）的占位由 _resolve_boundary 统一去重。
     - 每进只承担自己的北界；整院南外墙仅由最南一进(idx0)承担。
     - 图谱 ring 保留 provider 语义声明（可逆），几何实现不再消费它做预判。
@@ -883,11 +1020,12 @@ def _geo_wall_ring(c, w, zc, d, norms, draw_south=True):
             r_seg = half - (gx + gh)
             if r_seg > 0.01:
                 out.append(_geo_wall((gx + gh) + r_seg / 2, zc_wall, r_seg, H, T, "yuanqiang"))
-        elif gate in ("chuihuamen", "chuantang"):
-            # 垂花门门洞宽 = 门体面阔(gateSpan)，与宅门同法从 norms 取；
-            # 穿堂用房门洞口宽 norms.door.width（两者语义不同：门洞是墙上开缺，门体是一栋建筑）
-            gs = (float(_norms_get(norms, ("chuihuamen", "gateSpan"), "垂花门面阔"))
-                  if gate == "chuihuamen" else float(_norms_get(norms, ("door", "width"), "穿堂门洞宽")))
+        elif gate == "chuihuamen":
+            # 垂花门门洞宽 = 门体面阔(gateSpan)，与宅门同法从 norms 取。
+            # 穿堂不在此开缺：它的门洞由 _geo_zhengfang_chuantang 在正房明间上生成
+            # （正房被拆为「左右次间 + 中央明间南北贯通」）；且本函数仅在首院画南墙(draw_south)，
+            # 非首院的南界由上一进北房后檐墙承担，本就轮不到墙环开缺。
+            gs = float(_norms_get(norms, ("chuihuamen", "gateSpan"), "垂花门面阔"))
             gh = gs / 2
             l_seg = (0 - gh) - (-half)
             if l_seg > 0.01:
@@ -895,6 +1033,20 @@ def _geo_wall_ring(c, w, zc, d, norms, draw_south=True):
             r_seg = half - (0 + gh)
             if r_seg > 0.01:
                 out.append(_geo_wall(gh + r_seg / 2, zc_wall, r_seg, H, T, "yuanqiang"))
+        elif gate == "houmen":
+            # 后门：门洞开在**西端**（西北角），与宅门的东南角相对。此处必须开缺——
+            # 后门间北面本就是敞口（南北贯通），没有建筑墙可供 _resolve_boundary 替换，
+            # 若墙环照整段画，门道会被外围围墙堵死。
+            gs = float(_norms_get(norms, ("houmen", "gateSpan"), "后门门道面阔"))
+            gx = round(-(w / 2 - gs / 2 - float(_norms_get(norms, ("houmen", "westMargin"),
+                                                          "后门西侧留白"))), 3)
+            gh = gs / 2
+            l_seg = (gx - gh) - (-half)
+            if l_seg > 0.01:
+                out.append(_geo_wall(-half + l_seg / 2, zc_wall, l_seg, H, T, "yuanqiang"))
+            r_seg = half - (gx + gh)
+            if r_seg > 0.01:
+                out.append(_geo_wall((gx + gh) + r_seg / 2, zc_wall, r_seg, H, T, "yuanqiang"))
         else:
             out.append(_geo_wall(0, zc_wall, w, H, T, "yuanqiang"))
 

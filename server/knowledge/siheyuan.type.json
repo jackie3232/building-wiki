@@ -39,12 +39,12 @@
       {
         "role": "youlang",
         "ref": "youlang",
-        "desc": "游廊连接各屋（可选）"
+        "desc": "游廊连接各屋（可选）。【当前不启用】几何层各进 peripheral 未声明 youlang，留待加细节阶段确定抄手游廊形制与归属后再恢复"
       },
       {
         "role": "yingbi",
         "ref": "yingbi",
-        "desc": "入口影壁（可选）"
+        "desc": "门内影壁（可选）：正对宅门、立于门内侧，归宅门所在之院（第一进）"
       },
       {
         "role": "erfang",
@@ -264,6 +264,24 @@
       ],
       "desc": "宅门/大门：倒座房东端一间改门道+门楼，门道南北贯通(临街↔内院)"
     },
+    "houmen": {
+      "ref": "houmen",
+      "category": "空间角色",
+      "level": "sideng",
+      "material": "mugou",
+      "modular": {
+        "gateSpan": {
+          "ref": "miankuo",
+          "desc": "门道面阔(约一间)"
+        }
+      },
+      "structs": [
+        "men",
+        "qiangti",
+        "wuoding"
+      ],
+      "desc": "后门：后罩房西北角一间改门道，南北贯通(后罩院↔北胡同)。条件性构件——仅当宅后临街才设(见 rules.position.houmen: jin>=3)。与 zhaimen 对称：同为「一间改门道」，宅门在倒座房东端(东南角)带门楼，后门在后罩房西端(西北角)不带门楼。几何由 _geo_back_gate 拆为「东段普通后罩房 + 西端后门间南北贯通」。"
+    },
     "yuanqiang": {
       "ref": "yuanqiang",
       "category": "空间角色",
@@ -294,7 +312,7 @@
         "qiangti",
         "wuoding"
       ],
-      "desc": "正房明间做南北贯通过厅，连通内院与后院"
+      "desc": "正房明间做南北贯通过厅，连通本院与下一进院。属正房这座建筑，不是独立门：几何由 _geo_zhengfang_chuantang 拆为「左右次间 + 中央明间南北贯通」，图谱记正房属性 chuantang=true、院界记 ring.south.thru（不记 gate）"
     },
     "jiaodao": {
       "ref": "jiaodao",
