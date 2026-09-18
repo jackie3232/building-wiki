@@ -9,8 +9,8 @@
 // 随方向左右横跳；正下方是唯一在持续运动下仍然稳定的排法。
 //
 // 中文名一律取自后端命名字典（role -> label），前端不另存词表；字典缺 key 就回落显示 key。
-// 门（gate）节点只画真门（垂花门 / 宅门）—— 穿堂不是门，它是正房明间的贯通做法，
-// 挂在正房（building）节点上显示，不在这儿。
+// 门的名字由 kind 推：门屋取字典词条（大门/垂花门/后门）；门洞拼「房名 + 门」，
+// 一房多门（穿堂正房）拼「房名 + 南门/北门」——前端不硬编门的中文名。
 // ---------------------------------------------------------------------------
 
 const NS = "http://www.w3.org/2000/svg";
@@ -30,7 +30,7 @@ export function makeDictReader(dict) {
 
 const REL_LABEL = {
   zucheng: "包含",            // 静：域 ⊃ 院落 ⊃ 建筑/门/附属
-  liantong: "联通",           // 动：经门 / 明间门洞 / 穿堂，由一空间通达另一空间
+  liantong: "联通",           // 动：经门，由一空间通达另一空间
 };
 const TYPE_LABEL = { siheyuan: "四合院" };   // 图谱类型中文名（字典补「建筑类型」类目后应改从字典取）
 const SIDE_CN = { south: "南", north: "北", east: "东", west: "西" };
@@ -41,11 +41,16 @@ function subtitleOf(n) {
   if (n.cat === "domain") return n.jin != null ? `${n.jin} 进` : "";
   if (n.cat === "court") return n.court && n.court.sequence != null ? `第 ${n.court.sequence} 进` : "";
   if (n.cat === "building") return n.court ? (n.court.name || `第${n.court.sequence}进`) : "";
-  if (n.cat === "gate") return n.doorNote || (n.shared ? "分界门" : (n.exit ? "后门" : (n.entrance ? "正门" : "门")));
+  if (n.cat === "gate") {
+    // 门洞不排副标题：「东厢房门」这名字已说明一切，再挂一行只会压到「院 ⊃ 房」的连线上
+    if (n.kind === "door") return "";
+    if (n.between) return "分界门";
+    return n.role === "houmen" ? "后门" : (n.role === "zhaimen" ? "正门" : "门屋");
+  }
   return "";
 }
 
-function nodeTip(n, dict, meta) {
+function nodeTip(n, dict, meta, byId) {
   const { lbl, dsc } = makeDictReader(dict);
   const out = [];
   if (n.cat === "domain") {
@@ -65,8 +70,7 @@ function nodeTip(n, dict, meta) {
     if (parts.length) out.push("无建筑的界：" + parts.join("、"));
     if (n.entry && n.entry.thru) {
       out.push(`南界入口：经上一进「${lbl(n.entry.thru.of)}」明间过厅进入`);
-      out.push("过厅 = 正房明间：南门(内院进) → 北门(穿堂出口·达本院) —— 两道门");
-      out.push("穿堂属上一进那座正房 · 不立为门节点");
+      out.push("过厅 = 正房明间：南门(本院进) → 北门(穿堂出口·达本院) —— 两道门");
     }
   }
   if (n.cat === "building") {
@@ -77,22 +81,31 @@ function nodeTip(n, dict, meta) {
     if (info.miankuo != null) bits.push(`面阔 ${info.miankuo} 间`);
     if (info.jinshen != null) bits.push(`进深 ${info.jinshen} 间`);
     if (bits.length) out.push(bits.join(" · "));
-    // 穿堂：明间前后贯通，连通下一进院。它是这座房子的做法 → 随房子归属本院，不是门。
     if (info.chuantang) {
-      const doors = (n.doors || []).map((d) => `${d.side}（${d.note}）`).join(" → ");
-      out.push(`正房南北两端各一门（内院↔后罩院的载体）：${doors}`);
-      out.push("明间南北贯通作过厅 · 门洞不立节点，记在边上");
-    } else if (n.thru) out.push(`明间前后贯通作穿堂 · 通「${n.thru.to}」`);
+      out.push("明间南北贯通作过厅：南门 → 明间 → 北门（两端各一门节点）");
+      out.push("它是内院 ↔ 后罩院之间的载体 —— 通行要经它，不是院与院直连");
+    }
   }
   if (n.cat === "gate") {
-    if (n.doorNote) out.push(`${n.label || "门"} · ${n.doorNote}${n.note ? " · " + n.note : ""}`);
-    if (n.shared && n.between) {
-      out.push(`分界：${n.between.map((x) => `「${x}」`).join(" | ")}`);
-      out.push("相邻两院的共享边界 · 不独属于任一院，故归于域");
+    const hostNode = n.host ? byId.get(n.host) : null;
+    if (n.kind === "gatehouse") {
+      if (n.between) {
+        const names = n.between.map((id) => {
+          const c = byId.get(id);
+          return c ? (c.name || `第${(c.court || {}).sequence}进`) : id;
+        });
+        out.push(`分界：${names.map((x) => `「${x}」`).join(" | ")}`);
+        out.push("相邻两院的共享边界 · 不独属于任一院，故归于域");
+      }
+      if (n.role === "zhaimen") out.push("宅院正门 · 街 → 院（坎宅巽门）");
+      if (n.role === "houmen") out.push("宅院后门 · 院 → 北胡同（西北角一间改门道）");
+    } else {
+      out.push("明间门洞 · 开向由房屋所在侧推得（北房朝南、南房朝北、厢房朝院）");
+      out.push("门随房归属：房在院中，门即「院 ↔ 房」这一趟的枢纽，故单独立节点");
     }
-    if (n.embeddedIn && n.embeddedIn !== n.role) out.push(`嵌于「${lbl(n.embeddedIn)}」`);
-    if (n.entrance) out.push("宅院正门 · 街 → 院（坎宅巽门）");
-    if (n.exit) out.push("宅院后门 · 院 → 北胡同（西北角一间改门道，宅后临街才设）");
+    if (hostNode) out.push(`嵌于「${lbl(hostNode.role)}」`);
+    const owner = byId.get(n.belongsTo);
+    if (owner) out.push(`归属：${owner.cat === "domain" ? "域" : lbl(owner.role)}`);
   }
   if (n.cat === "aux") out.push("附属构件，挂在庭院上");
   return out.join("\n");
@@ -106,18 +119,41 @@ function seg(a, b, ra, rb) {
   return [a.x + ux * ra, a.y + uy * ra, b.x - ux * rb, b.y - uy * rb];
 }
 
+/* 哪些边必须画弧线：**联通（动线）一律弯** —— 它与包含常连同一对节点（院—建筑），
+   两条直线会叠成一条，静/动两层就分不出来。
+   包含边照直线画：力导向下没有固定轴列，位置由"连了谁"决定，不存在"夹在中轴列中间"
+   这类结构，故不需要按 domain/court 特判弯绕。 */
+function isCurvedLink(l) {
+  return l.rel === "liantong";
+}
+
 export function createRenderer(layers, view, dict, meta) {
   const { nodes, links, radiusOf } = view;
   const { lbl } = makeDictReader(dict);
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+
+  /* 一房有几道门：决定门洞叫「东厢房门」还是「正房南门 / 正房北门」 */
+  const doorsOnHost = new Map();
+  for (const n of nodes) {
+    if (n.cat === "gate" && n.host) doorsOnHost.set(n.host, (doorsOnHost.get(n.host) || 0) + 1);
+  }
+  function gateLabel(n) {
+    if (n.kind === "gatehouse") return lbl(n.role);              // 大门 / 垂花门 / 后门
+    const base = n.hostRole ? lbl(n.hostRole) : "房";            // 厢房 / 倒座房 / 后罩房 / 正房
+    if ((doorsOnHost.get(n.host) || 0) > 1) {                    // 一房多门（穿堂正房）
+      return base + (n.side === "south" ? "南门" : n.side === "north" ? "北门" : "门");
+    }
+    const tag = (n.side === "east" || n.side === "west") ? SIDE_CN[n.side] : "";
+    return tag + base + "门";                                    // 东厢房门 / 倒座房门
+  }
 
   const gEdges = el("g", null, layers);
   const gNodes = el("g", null, layers);
   const gLabels = el("g", null, layers);
 
   const edgeEls = links.map((l) => {
-    // 联通画成**弧线**：它与包含常常连的是同一对节点（院—建筑），两条直线会叠成一条，
-    // 静/动两层就看不出来了。给动线一个固定侧偏，两条边分列两侧。
-    const line = el(l.rel === "liantong" ? "path" : "line",
+    // 弯直与否见 isCurvedLink —— 凡是直线会压到第三个圆上的边，都画弧线绕开
+    const line = el(isCurvedLink(l) ? "path" : "line",
                     { class: `gr-edge gr-rel-${l.rel}` }, gEdges);
     const rel = REL_LABEL[l.rel] || l.rel;
     const t = el("title", null, line);
@@ -129,17 +165,15 @@ export function createRenderer(layers, view, dict, meta) {
   const nodeEls = nodes.map((n) => {
     const g = el("g", { class: `gr-node gr-cat-${n.cat}` }, gNodes);
     el("circle", { class: "gr-dot", r: radiusOf(n).toFixed(1) }, g);
-    const tip = nodeTip(n, dict, meta);
+    const tip = nodeTip(n, dict, meta, byId);
     if (tip) { const t = el("title", null, g); t.textContent = tip; }
 
-    // 两侧翼是同名的两个不同实体（东厢房 / 西厢房），标签带侧位才分得清谁是谁。
-    const sidePrefix = (n.side === "east" || n.side === "west") ? (SIDE_CN[n.side] || "") : "";
     const onDot = n.cat === "domain" ? " on-dot" : "";
     const main = el("text", { class: `gr-label${onDot}` }, gLabels);
     main.textContent = n.cat === "domain" ? (TYPE_LABEL[n.role] || n.role)
       : n.cat === "court" ? (n.name || (n.court && n.court.id) || "庭院")
-        : (n.label
-            || (n.hostRole ? sidePrefix + lbl(n.hostRole) + "门" : sidePrefix + lbl(n.role)));
+        : n.cat === "gate" ? gateLabel(n)
+          : lbl(n.role);
 
     const subText = subtitleOf(n);
     const sub = subText ? el("text", { class: `gr-sub${onDot}` }, gLabels) : null;
@@ -156,9 +190,7 @@ export function createRenderer(layers, view, dict, meta) {
         const len = Math.hypot(dx, dy) || 1;
         const nx = -dy / len, ny = dx / len;             // 弦的法向
         const cx0 = (x1 + x2) / 2, cy0 = (y1 + y2) / 2;
-        // 朝哪侧弯：挑**离不相干节点更远**的一侧——固定侧偏在小画布上会把动线甩到
-        // 旁边建筑的圆上（四进 1024x640 实测：后门⇢后罩院 压住厢房）。
-        // 迟滞 6px：两侧差不多时不来回翻，弧线才不会抖。
+        // 朝哪侧弯：挑**离不相干节点更远**的一侧，避免弧线压到别的圆。迟滞 6px 防抖。
         let side = 1, best = -Infinity;
         for (const s of [1, -1]) {
           const px = cx0 + nx * ARC_OFF * s, py = cy0 + ny * ARC_OFF * s;

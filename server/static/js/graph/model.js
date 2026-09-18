@@ -1,23 +1,30 @@
 // BUILDING.WIKI · 图谱视图 · 数据模型（实例图谱 → 关系图）
 // ---------------------------------------------------------------------------
 // 输入 = 一张实例图谱（零坐标）；输出 = { nodes, links }，**只含关系，不含坐标**。
-// 坐标由 layout.js 的力导向算。
+// 坐标由 layout.js 算（力导向：节点摆在哪由「它连了谁」决定，图上不声称方位）。
 //
 // 组织基调：**静为骨、动为用**，两类关系分层叠加。
-//   · 包含（zucheng）= 静：域 ⊃ 院落 ⊃ 建筑/附属；跨院之物 ⊃ 门。回答"这是什么院子"。
-//   · 联通（liantong）= 动：经门 / 明间门洞 / 穿堂，由一空间通达另一空间。回答"怎么走"。
-//   · 通行一律经门：**凡门皆立节点**——独立门屋（宅门 / 垂花门 / 后门）、
-//     各座房的明间门（东/西厢房门、倒座房门、后罩房门…）、穿堂正房的南门·北门。
-//     空间之间的通达 = 「空间 —门→ 空间」，门即枢纽；门 zucheng 于其所属建筑或院落。
-//   · 围合/对称/嵌于 全部降级为节点属性；附属归入包含。
-//     旧版 7 种连线同层平铺，正是"乱"的根源——此处先收敛为 2 类（静 1 + 动 1）。
+//   · 包含（zucheng）= 静：域 ⊃ 院落 ⊃ 建筑/门/附属。回答"这是什么院子"。
+//   · 联通（liantong）= 动：经门，由一空间通达另一空间。回答"怎么走"。
 //
 // 归属原则：**能归属到某一进院的，归该院；归属不到任何一进院的，归域（根）**。
 //   · 垂花门：独立门屋，建于院际卡子墙正中，两侧院都不独享 → 无归属 → 归域。
-//   · 穿堂：上一进正房「明间前后贯通」的做法，属那座正房 → 属上一进院；
-//     它给正房添了南北两道门（正房南门 / 正房北门），两门各立节点、串成动线。
-//     图谱侧仍记 ring.south.thru（不记 gate）——gate 只记独立门屋与各房门栋。
+//   · 穿堂：上一进正房「明间前后贯通」的做法，属那座正房 → 属上一进院。
 //   · 宅门：嵌于首院南界倒座房、不跨院 → 归首院。
+//
+// 门（gate）：**凡门皆立节点**，统一 schema、两种 kind ——
+//   · kind:"gatehouse" 门屋：独立门屋或嵌墙门屋（宅门 / 垂花门 / 后门）。
+//   · kind:"door"      门洞：房上明间门洞（倒座房门 / 厢房门 / 正房南北门）。
+//   统一字段：
+//     id        门屋 G:<院id>:<role>；门洞 G:<宿主建筑id>:door（一房多门追加 :s / :n）
+//     kind      "gatehouse" | "door"
+//     role      命名词条（zhaimen / chuihuamen / houmen / men）
+//     host      所嵌/所属建筑的节点 id（垂花门嵌卡子墙 → null）
+//     hostRole  宿主建筑的 role（供渲染拼「东厢房门」这类名字；前端不另存中文词表）
+//     side      所在方位（north / south / east / west）
+//     belongsTo zucheng 归属节点 id（院 / 域 / 宿主建筑）
+//     between   分界的两院 id（垂花门用；布局据此定位到两院之间）
+//     ways      liantong 边 [from, to, note] —— **由声明生成**，不再各处手写
 //
 // 墙（外围围墙/卡子墙）不立节点：某侧无建筑只是"那侧是围墙"，写成院落节点的边界属性。
 // 图谱没声明的实体一律不画（忠实投影，不替图谱补想象）。
@@ -26,7 +33,7 @@
 /* 两类关系：zucheng = 包含（静·骨架），liantong = 联通（动·动线）。 */
 export const RELS = [
   { rel: "zucheng", label: "包含", desc: "静态组织：域 ⊃ 院落 ⊃ 建筑/门/附属" },
-  { rel: "liantong", label: "联通", desc: "动态组织（动线）：经门 / 明间门洞 / 穿堂，由一空间通达另一空间" },
+  { rel: "liantong", label: "联通", desc: "动态组织（动线）：经门，由一空间通达另一空间" },
 ];
 const REL_SET = new Set(RELS.map((r) => r.rel));
 
@@ -71,86 +78,97 @@ export function buildModel(graph) {
   const links = [];
   const push = (n) => { nodes.push(n); return n; };
   const link = (s, t, rel, note) => {
-    if (!s || !t || s === t) return;
+    const si = typeof s === "string" ? s : (s && s.id);
+    const ti = typeof t === "string" ? t : (t && t.id);
+    if (!si || !ti || si === ti) return;
     if (!REL_SET.has(rel)) throw new Error(`未知关系类型：${rel}`);
-    links.push({ source: s.id, target: t.id, rel, note: note || "" });
+    links.push({ source: si, target: ti, rel, note: note || "" });
   };
 
   /* —— 域 —— */
   const root = push({ id: "domain", cat: "domain", role: data.type || "instance", jin: data.jin });
 
-  /* —— 院落：按中轴序列；域 ⊃ 院落（包含）—— */
+  /* —— 院落：按中轴序列；域 ⊃ 院落（包含）。seq 供布局按进数排序 —— */
   const courtNodes = courts.map((c) => {
     const rs = (c.ring || {}).south || {};
     const n = push({
       id: cid(c), cat: "court", role: roleOf(c.center) || "tingyuan",
-      name: c.name || "", court: c, boundary: {},
-      // 南界入口：gate = 真门（宅门/垂花门）；thru = 经上一进正房明间穿堂（不是门，不立节点）
+      name: c.name || "", court: c, seq: c.sequence ?? 0, boundary: {},
+      // 南界入口：gate = 真门（宅门/垂花门）；thru = 经上一进正房明间穿堂
       entry: rs.gate ? { gate: rs.gate } : (rs.thru ? { thru: rs.thru } : null),
     });
     link(root, n, "zucheng");
     return n;
   });
+  const nextCourt = (i) => (i + 1 < courtNodes.length ? courtNodes[i + 1] : null);
 
-  /* —— 每院自身围合界（北/东/西；首院另含南=倒座房）——
-     · 有建筑 → 建筑节点，包含于本院（"围合"是其功能，记进属性，不另立"围合"边）。
-     · 无建筑 → 该侧边界属性（墙），不立节点。 */
-  const bnode = new Map();          // `${院id}:${side}` -> 建筑节点（动线要按侧找它）
+  /* —— 门：统一生成器。归属（zucheng）+ 通行（liantong）都在这里落一次，
+     调用处只声明"这是什么门、嵌在哪、连通哪两端"。
+     anchor = 包含边的起点：默认取归属节点；宅门/后门嵌在某座房上，
+     包含边从**那座房**出发（短线），而归首院/末进院写在 belongsTo 属性里（tooltip 展示）——
+     若让包含边直接连院，它会横穿同一单元里的另一道门。 —— */
+  const gate = ({ id, kind, role, host, hostRole, side, belongsTo, between, ways, anchor }) => {
+    const n = push({
+      id, cat: "gate", kind, role, host: host || null, hostRole: hostRole || null,
+      side: side || null, belongsTo, between: between || null,
+    });
+    link(anchor || belongsTo, n, "zucheng");
+    for (const [a, b, note] of ways || []) link(a, b, "liantong", note);
+    return n;
+  };
+
+  /* —— 围合建筑 + 其门 ——
+     有建筑 → 建筑节点（包含于本院）；无建筑 → 该侧边界属性（墙），不立节点。 */
+  const bnode = new Map();          // `${院id}:${side}` -> 建筑节点
   courts.forEach((c, i) => {
     const cn = courtNodes[i];
     const sides = ["north", "east", "west"];
     if (i === 0) sides.push("south");   // 首院南界 = 倒座房（宅门嵌其上）
     for (const side of sides) {
       const info = sideInfo(c, side, i === 0 && side === "south");
-      if (info.provider) {
-        const bn = push({
-          id: `B:${cid(c)}:${side}`, cat: "building", role: info.provider,
-          side, info, court: c,
-          encloses: `${SIDE_TAG[side]}面 · 围合第${c.sequence}进院`,
+      if (!info.provider) {
+        if (info.kind) cn.boundary[side] = info.kind;   // 如 weiqiang：仅作边界属性
+        continue;
+      }
+      const bn = push({
+        id: `B:${cid(c)}:${side}`, cat: "building", role: info.provider,
+        side, info, court: c,
+        encloses: `${SIDE_TAG[side]}面 · 围合第${c.sequence}进院`,
+      });
+      bnode.set(`${cid(c)}:${side}`, bn);
+      link(cn, bn, "zucheng");
+
+      if (side === "north" && info.chuantang && nextCourt(i)) {
+        // 穿堂正房：明间南北贯通，两端各一门，串成「院 —南门→ 正房 —北门→ 下院」。
+        const fromName = c.name || `第${c.sequence}进`;
+        const nc = nextCourt(i);
+        const toName = nc.name || `第${nc.court.sequence}进`;
+        gate({
+          id: `${bn.id}:door:s`, kind: "door", role: "men",
+          host: bn.id, hostRole: bn.role, side: "south", belongsTo: bn.id,
+          ways: [
+            [cn.id, `${bn.id}:door:s`, "经正房·南门(明间)"],
+            [`${bn.id}:door:s`, bn.id, "南门进正房"],
+          ],
         });
-        bnode.set(`${cid(c)}:${side}`, bn);
-        link(cn, bn, "zucheng");
-        // 穿堂正房 = 内院↔后罩院之间的载体，**两端各拎出一个门节点**：
-        //   内院 —南门(明间)→ 正房 —北门(穿堂)→ 后罩院
-        // 南门朝内院、北门朝后罩院；两门都是这座正房的开门，故 zucheng 于正房，
-        // 同时串进 liantong 动线，让「进院—穿正房—达后院」是一条显式的门链。
-        if (side === "north" && info.chuantang && courts[i + 1]) {
-          const fromName = c.name || `第${c.sequence}进`;
-          const toName = courts[i + 1].name || `第${courts[i + 1].sequence}进`;
-          bn.doors = [
-            { side: "南门(明间)", note: `「${fromName}」进正房` },
-            { side: "北门(穿堂)", note: `出正房达「${toName}」` },
-          ];
-          const sdoor = push({
-            id: `G:${cid(c)}:zdS`, cat: "gate", role: "men", label: "正房南门",
-            court: c, side: "south", embeddedIn: bn.role, owner: bn.id,
-            doorNote: `明间 · 朝${fromName}`, note: `从「${fromName}」进正房`,
-          });
-          const ndoor = push({
-            id: `G:${cid(c)}:zdN`, cat: "gate", role: "men", label: "正房北门",
-            court: c, side: "north", embeddedIn: bn.role, owner: bn.id,
-            doorNote: `明间 · 朝${toName}`, note: `出正房达「${toName}」`,
-          });
-          link(bn, sdoor, "zucheng", "正房南门");
-          link(bn, ndoor, "zucheng", "正房北门");
-          link(cn, sdoor, "liantong", `经正房·南门(明间)`);
-          link(sdoor, bn, "liantong", "南门进正房");
-          link(bn, ndoor, "liantong", "出正房经北门");
-          link(ndoor, courtNodes[i + 1], "liantong", `经正房·北门(穿堂)达「${toName}」`);
-        } else if (info.door) {
-          // 每座围合建筑朝院都开有明间门洞 —— 门是「院 ↔ 房」这一趟的枢纽，单独立节点。
-          // 归属：门从属于这座建筑（zucheng 于建筑）；通行：院 —门→ 建筑（liantong）。
-          const door = push({
-            id: `G:${cid(c)}:${side}door`, cat: "gate", role: "men",
-            court: c, side, hostId: bn.id, hostRole: info.provider,
-            embeddedIn: info.provider, doorNote: "明间门洞",
-          });
-          link(bn, door, "zucheng", "门从属于本建筑");
-          link(cn, door, "liantong", `经${bn.role}明间门洞`);
-          link(door, bn, "liantong", `入${bn.role}明间`);
-        }
-      } else if (info.kind) {
-        cn.boundary[side] = info.kind;   // 如 weiqiang：该侧是外围围墙，仅作边界属性
+        gate({
+          id: `${bn.id}:door:n`, kind: "door", role: "men",
+          host: bn.id, hostRole: bn.role, side: "north", belongsTo: bn.id,
+          ways: [
+            [bn.id, `${bn.id}:door:n`, "出正房经北门"],
+            [`${bn.id}:door:n`, nc.id, `经正房·北门(穿堂)达「${toName}」`],
+          ],
+        });
+      } else if (info.door) {
+        // 每座围合建筑朝院都开有明间门洞：门是「院 ↔ 房」这一趟的枢纽，单独立节点。
+        gate({
+          id: `${bn.id}:door`, kind: "door", role: "men",
+          host: bn.id, hostRole: bn.role, side, belongsTo: bn.id,
+          ways: [
+            [cn.id, `${bn.id}:door`, `经${bn.role}明间门洞`],
+            [`${bn.id}:door`, bn.id, `入${bn.role}明间`],
+          ],
+        });
       }
     }
   });
@@ -164,37 +182,50 @@ export function buildModel(graph) {
     }
   });
 
-  /* —— 门 ——
-     只立「真门」节点：ring.south.gate 有值才画（宅门 / 垂花门）。
-     穿堂**不再出现在这里** —— 图谱把它记在 ring.south.thru，属上一进正房，
-     已挂在那个建筑节点上（见上）。此处的 s.gate 恒不含 chuantang。
-     · 宅门：嵌于首院南界（倒座房东侧），对外、不跨院 → 归属首院。
-     · 垂花门：独立门屋，建于院际卡子墙正中，两侧院都不独享 → 归域根，记明「分界哪两院」。 */
+  /* —— 门屋：宅门 / 垂花门 / 后门 —— */
   if (courts.length) {
-    const c0 = courts[0];
+    const c0 = courts[0], cn0 = courtNodes[0];
     const s0 = sideInfo(c0, "south", true);
     if (s0.gate) {
-      const gn = push({
-        id: `G:${cid(c0)}:south`, cat: "gate", role: s0.gate,
-        info: s0, embeddedIn: s0.provider, court: c0, entrance: true,
-        side: "south", hostId: `B:${cid(c0)}:south`,   // 所嵌的那座房子（布局初值用）
+      // 宅门：嵌于首院南界倒座房（东端一间改门道），对外、不跨院 → 归属首院。
+      gate({
+        id: `G:${cid(c0)}:${s0.gate}`, kind: "gatehouse", role: s0.gate,
+        host: `B:${cid(c0)}:south`, hostRole: s0.provider, side: "south",
+        belongsTo: cn0.id, anchor: `B:${cid(c0)}:south`,
+        ways: [[`G:${cid(c0)}:${s0.gate}`, cn0.id, "街 ↔ 院（正门·坎宅巽门）"]],
       });
-      link(courtNodes[0], gn, "zucheng");   // 宅门属于首院
     }
   }
   for (let i = 1; i < courts.length; i++) {
-    const cur = courts[i];
-    const prev = courts[i - 1];
-    const s = sideInfo(cur, "south", false);
+    const s = sideInfo(courts[i], "south", false);
     if (!s.gate) continue;
-    const pn = prev.name || `第${prev.sequence}进`;
-    const cn2 = cur.name || `第${cur.sequence}进`;
-    const gn = push({
-      id: `G:${cid(cur)}:south`, cat: "gate", role: s.gate,
-      info: s, embeddedIn: s.provider, court: cur,
-      shared: true, between: [pn, cn2],
+    // 垂花门：独立门屋，建于院际卡子墙正中，两侧院都不独享 → 归域根，记明分界哪两院。
+    const pn = courts[i - 1].name || `第${courts[i - 1].sequence}进`;
+    const cn2 = courts[i].name || `第${courts[i].sequence}进`;
+    const note = `经垂花门：${pn} ↔ ${cn2}`;
+    gate({
+      id: `G:${cid(courts[i])}:${s.gate}`, kind: "gatehouse", role: s.gate,
+      host: null, hostRole: null, side: "south", belongsTo: root.id,
+      between: [courtNodes[i - 1].id, courtNodes[i].id],
+      ways: [
+        [courtNodes[i - 1].id, `G:${cid(courts[i])}:${s.gate}`, note],
+        [`G:${cid(courts[i])}:${s.gate}`, courtNodes[i].id, note],
+      ],
     });
-    link(root, gn, "zucheng");   // 共享边界 → 归域
+  }
+  if (courts.length) {
+    // 后门：嵌于末进北界后罩房的西北角，宅院通往北胡同的出口。嵌在谁身上就归谁所在的院。
+    const cLast = courts[courts.length - 1];
+    const cnL = courtNodes[courtNodes.length - 1];
+    const nLast = sideInfo(cLast, "north", false);
+    if (nLast.gate === "houmen") {
+      gate({
+        id: `G:${cid(cLast)}:houmen`, kind: "gatehouse", role: "houmen",
+        host: `B:${cid(cLast)}:north`, hostRole: nLast.provider, side: "north",
+        belongsTo: cnL.id, anchor: `B:${cid(cLast)}:north`,
+        ways: [[`G:${cid(cLast)}:houmen`, cnL.id, "院 ↔ 北胡同（后门·西北角）"]],
+      });
+    }
   }
 
   /* —— 附属构件（影壁）：包含于本院（轻量节点） ——
@@ -205,44 +236,6 @@ export function buildModel(graph) {
       link(courtNodes[i], n, "zucheng");
     });
   });
-
-  /* —— 后门：嵌于末进（后罩院）北界后罩房的西北角，宅院通往北胡同的出口 ——
-     与宅门同法：不是独立门屋，而是「把西北角那间改成门道」，嵌在谁身上就归谁所在的院
-     （宅门嵌倒座房 → 归首院；后门嵌后罩房 → 归后罩院）。条件性构件：图谱声明了才画。 */
-  let houmen = null;
-  if (courts.length) {
-    const cLast = courts[courts.length - 1];
-    const nLast = sideInfo(cLast, "north", false);
-    if (nLast.gate === "houmen") {
-      houmen = push({
-        id: `G:${cid(cLast)}:north`, cat: "gate", role: nLast.gate,
-        info: nLast, embeddedIn: nLast.provider, court: cLast,
-        exit: true, at: "northwest", side: "north",
-        hostId: `B:${cid(cLast)}:north`,   // 所嵌的那座后罩房（布局初值用）
-      });
-      link(courtNodes[courts.length - 1], houmen, "zucheng");   // 后门属于末进院
-    }
-  }
-
-  /* —— 联通（动线）：静是骨架、动是用途，两层叠加在同一张图上 ——
-     主轴：街 —宅门→ 外院 —垂花门→ 内院 —正房南门→ 正房 —正房北门→ 后罩院 —后门→ 北胡同。
-     院内：院 —各房门→ 各围合建筑；每座房的门都是「院↔房」这一趟的枢纽节点。 */
-  if (courts.length) {
-    // 院 ↔ 围合建筑的通行（含穿堂正房两端）已在上面建筑循环里按「院 —门→ 建筑」表达；
-    // 这里只处理独立门屋（垂花门）与对外出口（宅门 / 后门）。
-    // 门：只有独立门屋才走「院—门—院」两段；另一端是院外（街/胡同）时不立节点，
-    //     只连院内这一段，院外那一头写在边的 note 里。
-    for (let i = 1; i < courts.length; i++) {
-      const gn = nodes.find((n) => n.id === `G:${cid(courts[i])}:south`);
-      if (!gn) continue;
-      const note = `经垂花门：${courts[i - 1].name || ""} ↔ ${courts[i].name || ""}`;
-      link(courtNodes[i - 1], gn, "liantong", note);
-      link(gn, courtNodes[i], "liantong", note);
-    }
-    const zm = nodes.find((n) => n.id === `G:${cid(courts[0])}:south`);
-    if (zm && courtNodes[0]) link(zm, courtNodes[0], "liantong", "街 ↔ 院（正门·坎宅巽门）");
-    if (houmen) link(houmen, courtNodes[courtNodes.length - 1], "liantong", "院 ↔ 北胡同（后门·西北角）");
-  }
 
   return { nodes, links, rels: RELS, meta: (graph && graph.meta) || {} };
 }

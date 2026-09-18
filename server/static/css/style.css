@@ -15,7 +15,6 @@
   --g-dot-building:  #c8ddf4;  --g-dot-building-e:  #9dbfe2;
   --g-dot-gate:      #f2ce93;  --g-dot-gate-e:      #d9a85f;
   --g-dot-aux:       #d8d0f2;  --g-dot-aux-e:       #b3a7de;
-  --g-dot-passage:   #f0b46a;  --g-dot-passage-e:   #d98f3f;  /* 过厅：与门/动线同琥珀色系 */
   /* 单一关系配色 */
   --g-rel-zucheng: #c9d4e2;    /* 包含：退成骨架 */
   --g-rel-liantong: #e0a15e;   /* 联通（动线）：琥珀虚线，与门节点同色系 */
@@ -229,7 +228,6 @@ body.graphing #tour-hud { display: none; }   /* 标题行接替顶部标识的�
 .gr-cat-building > .gr-dot { fill: var(--g-dot-building); stroke: var(--g-dot-building-e); }
 .gr-cat-gate     > .gr-dot { fill: var(--g-dot-gate);     stroke: var(--g-dot-gate-e); }
 .gr-cat-aux      > .gr-dot { fill: var(--g-dot-aux);      stroke: var(--g-dot-aux-e); }
-.gr-cat-passage  > .gr-dot { fill: var(--g-dot-passage);  stroke: var(--g-dot-passage-e); }
 
 /* 标签一律排在圆点正下方居中 —— 布局持续微动时，正下方是唯一不左右横跳的排法 */
 .gr-label {

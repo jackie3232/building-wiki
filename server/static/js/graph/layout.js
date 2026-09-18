@@ -135,13 +135,14 @@ export function createLayout(model, W, H) {
     });
   }
 
-  /* 嵌于建筑的门（宅门嵌倒座房 / 后门嵌后罩房）：初值贴到它所嵌的那座房子旁，
+  /* 嵌于建筑的门（宅门嵌倒座房 / 各房的明间门洞 / 后门嵌后罩房）：初值贴到它**所嵌的那座房子**旁，
      而不是只跟着院——只跟着院的话，力导向会把门甩到「院—另一座建筑」的连线上
      （三进 1024x640、四进 1280x820 实测：后罩院→后门 的线碾过厢房圆）。
-     注：这只是**布局初值**，力导向仍会重排；side 取自图谱的边界声明，图上不声称方位。 */
+     注：这只是**布局初值**，力导向仍会重排；side 取自图谱的边界声明，图上不声称方位。
+     host 即数据层的门.host（所嵌建筑节点 id），与 model.js 的门 schema 同源。 */
   for (const n of nodes) {
-    if (!n.hostId) continue;
-    const h = byId.get(n.hostId);
+    if (!n.host) continue;
+    const h = byId.get(n.host);
     if (!h || h.x == null) continue;
     const ang = n.side === "north" ? -Math.PI / 2 : Math.PI / 2;
     const rr = radiusOf(h) + radiusOf(n) + 26;
