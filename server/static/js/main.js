@@ -73,7 +73,7 @@ let currentGraph = null;               // 场上场景所依据的实例图谱�
    两处都在知识中心，前端只做查询，不维护映射表。 */
 const MATERIAL_FAMILY = {};            // material key -> family(贴图文件名)，启动时从 /api/dict 载入
 let roleMaterial = {};                 // role -> material key，随每次场景的图谱刷新
-const FAMILY_FALLBACK = "brick";       // 图谱未声明材质(建筑无 material 字段)时的兜底
+const FAMILY_FALLBACK = "zhuan";       // 图谱未声明材质(建筑无 material 字段)时的兜底
 
 async function loadKnowledge() {
   try {
@@ -94,7 +94,7 @@ function setGraphMaterials(graph) {
   const courts = (graph && graph.data && graph.data.courtyards) || [];
   for (const c of courts) {
     const enc = (c && c.enclosure) || {};
-    for (const side of ["north", "south", "east", "west"]) {
+    for (const side of ["bei", "nan", "dong", "xi"]) {
       const b = enc[side];
       if (b && b.role && b.material) roleMaterial[b.role] = b.material;
     }
@@ -522,7 +522,7 @@ function exitTour() {
 /* 相机跟随（第三人称吊臂）。三个关键点，逐一对应此前实测到的穿墙/抖动：
    ① 吊臂方向用独立的 camYaw（比人物 TURN_K 更慢），拐角时镜头平滑扫过而非随人猛甩；
    ② 沿吊臂向外逐格采样求「最远空位」dTgt，相机距离只在 [0, dTgt] 内平滑 —— 位置恒落在
-      无遮挡段内，因此任何一帧都不可能落在实体里（旧版把 back 硬夹到 0.5，等于在墙里
+      无遮挡段内，因此任何一帧都不可能落在实体里（旧版把 houzhaoyuan 硬夹到 0.5，等于在墙里
       强行摆一台相机，实测入墙 33~269 帧、内院连续 70 帧）；
    ③ 距离"收快放慢"，且硬夹不超过 dTgt：进门洞时不至于弹来弹去，沿墙走时也不会抖。 */
 function applyTourCamera(dt) {

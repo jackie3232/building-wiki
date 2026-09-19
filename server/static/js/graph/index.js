@@ -17,7 +17,6 @@ import { createLayout } from "./layout.js";
 import { createRenderer } from "./render.js";
 
 const NS = "http://www.w3.org/2000/svg";
-const TYPE_LABEL = { siheyuan: "四合院" };   // 图谱类型中文名（字典补「建筑类型」类目后应改从字典取）
 
 let active = false;
 let dictMap = null;
@@ -180,11 +179,12 @@ export async function enterGraphView(graph) {
       b.type = "button";
       b.className = "gr-legend-item";
       b.dataset.rel = r.rel;
-      b.title = r.desc;
+      const rl = dict[r.rel];                    // 关系中文名/释义走命名字典（与节点一致，前端不另存词表）
+      b.title = (rl && rl.desc) || r.desc || "";
       const sw = document.createElement("span");
       sw.className = `gr-swatch gr-rel-${r.rel}`;
       const nm = document.createElement("span");
-      nm.textContent = r.label;
+      nm.textContent = (rl && rl.label) || r.label || r.rel;
       b.append(sw, nm);
       b.addEventListener("click", () => {
         picked = picked === r.rel ? null : r.rel;
@@ -203,7 +203,7 @@ export async function enterGraphView(graph) {
     const data = graph.data || {};
     title.replaceChildren();
     const a = document.createElement("span");
-    a.textContent = `实例图谱 · ${TYPE_LABEL[data.type] || data.type || "instance"}`;
+    a.textContent = `实例图谱 · ${(dict[data.type] && dict[data.type].label) || data.type || "instance"}`;
     const b = document.createElement("span");
     b.className = "sub";
     const bits = [`${data.jin ?? "?"} 进`, `${model.nodes.length} 节点`,

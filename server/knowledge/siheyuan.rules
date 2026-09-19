@@ -216,13 +216,14 @@
     },
     "courtDepthRatio": {
       "byRole": {
-        "front": 0.3,
-        "qiantang": 0.45,
-        "main": 0.6,
-        "back": 0.42
+        "waiyuan": 0.3,
+        "tingfangyuan": 0.45,
+        "neiyuan": 0.6,
+        "houzhaoyuan": 0.42,
+        "tingyuan": 0.6
       },
       "default": 0.45,
-      "desc": "露天院落进深=面阔×ratio，按院落角色：front=外院(最浅，南北短东西长)、qiantang=厅房院(前堂，居中)、main=内院主院(最大，近正方形)、back=后罩院及其前的次院(居中)。一进仅 main；二进=front+main；三进=front+main+back；四进及以上前堂后寝=front+qiantang+main+back(+次院)。main=正房所在的主院(后寝)，取最靠南的正房院但跳过作过厅(usage=guoting)的那一进——过厅是前堂不是后寝；qiantang=作过厅的那一进；front=倒座所在的外院；back=main 之后的院。"
+      "desc": "露天院落进深=面阔×ratio，按院落角色：waiyuan=外院(最浅，南北短东西长)、tingfangyuan=厅房院(前堂，居中)、neiyuan=内院主院(最大，近正方形)、houzhaoyuan=后罩院及其前的次院(居中)。一进仅 tingyuan(庭院，既入口院又是主院、无独立院名)；二进=waiyuan+neiyuan；三进=waiyuan+neiyuan+houzhaoyuan；四进及以上前堂后寝=waiyuan+tingfangyuan+neiyuan+houzhaoyuan(+次院)。neiyuan=正房所在的主院(后寝)，取最靠南的正房院但跳过作过厅(usage=guoting)的那一进——过厅是前堂不是后寝；tingfangyuan=作过厅的那一进；waiyuan=倒座所在的外院；houzhaoyuan=neiyuan 之后的院。"
     },
     "layout": {
       "xiangfang": {

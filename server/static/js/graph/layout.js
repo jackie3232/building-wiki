@@ -144,7 +144,7 @@ export function createLayout(model, W, H) {
     if (!n.host) continue;
     const h = byId.get(n.host);
     if (!h || h.x == null) continue;
-    const ang = n.side === "north" ? -Math.PI / 2 : Math.PI / 2;
+    const ang = n.side === "bei" ? -Math.PI / 2 : Math.PI / 2;
     const rr = radiusOf(h) + radiusOf(n) + 26;
     n.x = h.x + Math.cos(ang) * rr;
     n.y = h.y + Math.sin(ang) * rr;

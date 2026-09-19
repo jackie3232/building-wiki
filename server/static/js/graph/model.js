@@ -21,7 +21,7 @@
 //     role      命名词条（zhaimen / chuihuamen / houmen / men）
 //     host      所嵌/所属建筑的节点 id（垂花门嵌卡子墙 → null）
 //     hostRole  宿主建筑的 role（供渲染拼「东厢房门」这类名字；前端不另存中文词表）
-//     side      所在方位（north / south / east / west）
+//     side      所在方位（bei / nan / dong / xi）
 //     belongsTo zucheng 归属节点 id（院 / 域 / 宿主建筑）
 //     between   分界的两院 id（垂花门用；布局据此定位到两院之间）
 //     ways      liantong 边 [from, to, note] —— **由声明生成**，不再各处手写
@@ -37,7 +37,7 @@ export const RELS = [
 ];
 const REL_SET = new Set(RELS.map((r) => r.rel));
 
-export const SIDE_TAG = { south: "南", north: "北", east: "东", west: "西" };
+export const SIDE_TAG = { nan: "南", bei: "北", dong: "东", xi: "西" };
 const roleOf = (o) => (o && o.role) || null;
 
 /* 一侧的界：优先用图谱层声明的 ring；无 ring（手写/旧版图谱）时按 enclosure 兜底。 */
@@ -47,6 +47,12 @@ function sideInfo(court, side, isSouthmost) {
     role: roleOf(e),
     miankuo: e.miankuo ?? null,
     jinshen: e.jinshen ?? null,
+    // 实体属性：图谱里本来就有（enclosure 各侧带），一路原样带到节点上，供 tooltip 展示。
+    // 中文名一律由字典查（qingzhuan→青砖砌 / sandeng→三等·配房），前端不另存词表。
+    height: e.height ?? null,
+    taiming: e.taiming ?? null,
+    level: e.level ?? null,
+    material: e.material ?? null,
     chuantang: !!e.chuantang,
     // 朝院门洞：各房门窗均向院内开辟，门在明间。图谱只记**位置**，不记开向——
     // 开向由房屋所在侧推得（北房朝南、南房朝北、东厢朝西、西厢朝东），属几何事实。
@@ -60,9 +66,9 @@ function sideInfo(court, side, isSouthmost) {
   }
   const enc = court.enclosure || {};
   let gate = null;
-  if (side === "north" && enc.northGate) gate = roleOf(enc.northGate);
-  else if (side === "south" && enc.southGate) gate = roleOf(enc.southGate);
-  else if (side === "south" && isSouthmost && e.gate) gate = roleOf(e.gate) || "zhaimen";
+  if (side === "bei" && enc.beimen) gate = roleOf(enc.beimen);
+  else if (side === "nan" && enc.nanmen) gate = roleOf(enc.nanmen);
+  else if (side === "nan" && isSouthmost && e.gate) gate = roleOf(e.gate) || "zhaimen";
   return { ...base, provider: base.role, kind: base.role ? "houyanqiang" : "weiqiang",
            gate, thru: null };
 }
@@ -90,10 +96,18 @@ export function buildModel(graph) {
 
   /* —— 院落：按中轴序列；域 ⊃ 院落（包含）。seq 供布局按进数排序 —— */
   const courtNodes = courts.map((c) => {
-    const rs = (c.ring || {}).south || {};
+    const rs = (c.ring || {}).nan || {};
     const n = push({
       id: cid(c), cat: "court", role: roleOf(c.center) || "tingyuan",
       name: c.name || "", court: c, seq: c.sequence ?? 0, boundary: {},
+      // 院落自身属性（图谱 data.courtyards[] 上就有，原样挂到节点）：
+      //   courtRole = 院落角色（waiyuan 外院 / tingfangyuan 前堂 / neiyuan 主院 / houzhaoyuan 后罩院），
+      //               进深比 courtDepthRatio 就是按它取值的；字典暂无此词条 → 前端回落显示原 key。
+      //   relation  = 围合关系（weihe），与中轴/对称/序列同属 dict「关系」类目。
+      //   perimeter = 该院四周是否有围合。
+      courtRole: c.role || null,
+      relation: (c.enclosure || {}).relation || null,
+      perimeter: !!c.perimeter,
       // 南界入口：gate = 真门（宅门/垂花门）；thru = 经上一进正房明间穿堂
       entry: rs.gate ? { gate: rs.gate } : (rs.thru ? { thru: rs.thru } : null),
     });
@@ -122,14 +136,15 @@ export function buildModel(graph) {
   const bnode = new Map();          // `${院id}:${side}` -> 建筑节点
   courts.forEach((c, i) => {
     const cn = courtNodes[i];
-    const sides = ["north", "east", "west"];
-    if (i === 0) sides.push("south");   // 首院南界 = 倒座房（宅门嵌其上）
+    const sides = ["bei", "dong", "xi"];
+    if (i === 0) sides.push("nan");   // 首院南界 = 倒座房（宅门嵌其上）
     for (const side of sides) {
-      const info = sideInfo(c, side, i === 0 && side === "south");
-      if (!info.provider) {
-        if (info.kind) cn.boundary[side] = info.kind;   // 如 weiqiang：仅作边界属性
-        continue;
-      }
+      const info = sideInfo(c, side, i === 0 && side === "nan");
+      // 各侧围合做法一律记进 boundary（原先只记"无建筑"那侧，有建筑侧的 houyanqiang 被丢了）：
+      //   有建筑 → 该建筑的**后檐墙**houyanqiang 便充当这一侧的院墙；
+      //   无建筑 → weiqiang 外围围墙 / kaziqiang 卡子墙。
+      if (info.kind) cn.boundary[side] = info.kind;
+      if (!info.provider) continue;
       const bn = push({
         id: `B:${cid(c)}:${side}`, cat: "building", role: info.provider,
         side, info, court: c,
@@ -138,14 +153,14 @@ export function buildModel(graph) {
       bnode.set(`${cid(c)}:${side}`, bn);
       link(cn, bn, "zucheng");
 
-      if (side === "north" && info.chuantang && nextCourt(i)) {
+      if (side === "bei" && info.chuantang && nextCourt(i)) {
         // 穿堂正房：明间南北贯通，两端各一门，串成「院 —南门→ 正房 —北门→ 下院」。
         const fromName = c.name || `第${c.sequence}进`;
         const nc = nextCourt(i);
         const toName = nc.name || `第${nc.court.sequence}进`;
         gate({
           id: `${bn.id}:door:s`, kind: "door", role: "men",
-          host: bn.id, hostRole: bn.role, side: "south", belongsTo: bn.id,
+          host: bn.id, hostRole: bn.role, side: "nan", belongsTo: bn.id,
           ways: [
             [cn.id, `${bn.id}:door:s`, "经正房·南门(明间)"],
             [`${bn.id}:door:s`, bn.id, "南门进正房"],
@@ -153,7 +168,7 @@ export function buildModel(graph) {
         });
         gate({
           id: `${bn.id}:door:n`, kind: "door", role: "men",
-          host: bn.id, hostRole: bn.role, side: "north", belongsTo: bn.id,
+          host: bn.id, hostRole: bn.role, side: "bei", belongsTo: bn.id,
           ways: [
             [bn.id, `${bn.id}:door:n`, "出正房经北门"],
             [`${bn.id}:door:n`, nc.id, `经正房·北门(穿堂)达「${toName}」`],
@@ -175,8 +190,8 @@ export function buildModel(graph) {
 
   /* —— 对称：同院东西同名建筑 → 节点属性（不另立边） —— */
   courts.forEach((c) => {
-    const e = nodes.find((n) => n.id === `B:${cid(c)}:east`);
-    const w = nodes.find((n) => n.id === `B:${cid(c)}:west`);
+    const e = nodes.find((n) => n.id === `B:${cid(c)}:dong`);
+    const w = nodes.find((n) => n.id === `B:${cid(c)}:xi`);
     if (e && w && e.cat === "building" && e.role === w.role) {
       e.mirror = w.role; w.mirror = e.role;
     }
@@ -185,19 +200,19 @@ export function buildModel(graph) {
   /* —— 门屋：宅门 / 垂花门 / 后门 —— */
   if (courts.length) {
     const c0 = courts[0], cn0 = courtNodes[0];
-    const s0 = sideInfo(c0, "south", true);
+    const s0 = sideInfo(c0, "nan", true);
     if (s0.gate) {
       // 宅门：嵌于首院南界倒座房（东端一间改门道），对外、不跨院 → 归属首院。
       gate({
         id: `G:${cid(c0)}:${s0.gate}`, kind: "gatehouse", role: s0.gate,
-        host: `B:${cid(c0)}:south`, hostRole: s0.provider, side: "south",
-        belongsTo: cn0.id, anchor: `B:${cid(c0)}:south`,
+        host: `B:${cid(c0)}:nan`, hostRole: s0.provider, side: "nan",
+        belongsTo: cn0.id, anchor: `B:${cid(c0)}:nan`,
         ways: [[`G:${cid(c0)}:${s0.gate}`, cn0.id, "街 ↔ 院（正门·坎宅巽门）"]],
       });
     }
   }
   for (let i = 1; i < courts.length; i++) {
-    const s = sideInfo(courts[i], "south", false);
+    const s = sideInfo(courts[i], "nan", false);
     if (!s.gate) continue;
     // 垂花门：独立门屋，建于院际卡子墙正中，两侧院都不独享 → 归域根，记明分界哪两院。
     const pn = courts[i - 1].name || `第${courts[i - 1].sequence}进`;
@@ -205,7 +220,7 @@ export function buildModel(graph) {
     const note = `经垂花门：${pn} ↔ ${cn2}`;
     gate({
       id: `G:${cid(courts[i])}:${s.gate}`, kind: "gatehouse", role: s.gate,
-      host: null, hostRole: null, side: "south", belongsTo: root.id,
+      host: null, hostRole: null, side: "nan", belongsTo: root.id,
       between: [courtNodes[i - 1].id, courtNodes[i].id],
       ways: [
         [courtNodes[i - 1].id, `G:${cid(courts[i])}:${s.gate}`, note],
@@ -217,12 +232,12 @@ export function buildModel(graph) {
     // 后门：嵌于末进北界后罩房的西北角，宅院通往北胡同的出口。嵌在谁身上就归谁所在的院。
     const cLast = courts[courts.length - 1];
     const cnL = courtNodes[courtNodes.length - 1];
-    const nLast = sideInfo(cLast, "north", false);
+    const nLast = sideInfo(cLast, "bei", false);
     if (nLast.gate === "houmen") {
       gate({
         id: `G:${cid(cLast)}:houmen`, kind: "gatehouse", role: "houmen",
-        host: `B:${cid(cLast)}:north`, hostRole: nLast.provider, side: "north",
-        belongsTo: cnL.id, anchor: `B:${cid(cLast)}:north`,
+        host: `B:${cid(cLast)}:bei`, hostRole: nLast.provider, side: "bei",
+        belongsTo: cnL.id, anchor: `B:${cid(cLast)}:bei`,
         ways: [[`G:${cid(cLast)}:houmen`, cnL.id, "院 ↔ 北胡同（后门·西北角）"]],
       });
     }

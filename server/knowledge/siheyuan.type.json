@@ -65,25 +65,25 @@
       "ref": "weihe",
       "desc": "院落连续围墙基底（boundarySegmentRealization 院墙环分段实现）：每院先有一道完整四侧墙环（纯围墙基线）；叠加建筑后，其贴边界的后檐墙分段实现（替换）对应围墙段；建筑间空隙由补墙/游廊填。每侧墙基底默认存在（provider=null 即独立院墙），该侧若有建筑后檐墙则声明 provider 分段实现该侧。",
       "sides": {
-        "north": {
+        "bei": {
           "wall": "yuanqiang",
           "candidateProvider": "zhengfang",
           "ref": "zhengfang",
           "desc": "北墙基底；默认由正房/后罩房后檐墙提供，无北房则为独立院墙"
         },
-        "south": {
+        "nan": {
           "wall": "yuanqiang",
           "candidateProvider": "daozuofang",
           "ref": "daozuofang",
           "desc": "南墙基底；默认由倒座房后檐墙提供，无倒座则为独立院墙"
         },
-        "east": {
+        "dong": {
           "wall": "yuanqiang",
           "candidateProvider": "xiangfang",
           "ref": "xiangfang",
           "desc": "东墙基底；默认由东厢房后檐墙提供，无东厢则为独立院墙"
         },
-        "west": {
+        "xi": {
           "wall": "yuanqiang",
           "candidateProvider": "xiangfang",
           "ref": "xiangfang",
@@ -312,7 +312,7 @@
         "qiangti",
         "wuoding"
       ],
-      "desc": "正房明间做南北贯通过厅，连通本院与下一进院。属正房这座建筑，不是独立门：几何由 _geo_zhengfang_chuantang 拆为「左右次间 + 中央明间南北贯通」，图谱记正房属性 chuantang=true、院界记 ring.south.thru（不记 gate）"
+      "desc": "正房明间做南北贯通过厅，连通本院与下一进院。属正房这座建筑，不是独立门：几何由 _geo_zhengfang_chuantang 拆为「左右次间 + 中央明间南北贯通」，图谱记正房属性 chuantang=true、院界记 ring.nan.thru（不记 gate）"
     },
     "jiaodao": {
       "ref": "jiaodao",
@@ -356,7 +356,7 @@
     "desc": "墙实体：boundarySegmentRealization（院墙环分段实现）模型中每侧墙环的实例。坐标由几何层按 ring 声明生成。",
     "attrs": {
       "side": {
-        "desc": "方位 north/south/east/west"
+        "desc": "方位 bei/nan/dong/xi"
       },
       "kind": {
         "desc": "墙种：外围围墙/卡子墙/后檐墙/补墙/游廊/影壁"

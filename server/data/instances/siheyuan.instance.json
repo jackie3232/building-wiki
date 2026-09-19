@@ -17,8 +17,8 @@
         "sequence": 1,
         "enclosure": {
           "relation": "weihe",
-          "south": { "role": "daozuofang", "miankuo": 5, "jinshen": 2, "faces": "bei" },
-          "northGate": { "role": "chuihuamen" }
+          "nan": { "role": "daozuofang", "miankuo": 5, "jinshen": 2, "faces": "bei" },
+          "beimen": { "role": "chuihuamen" }
         },
         "center": { "role": "tingyuan" }
       },
@@ -28,16 +28,16 @@
         "sequence": 2,
         "enclosure": {
           "relation": "weihe",
-          "north": {
+          "bei": {
             "role": "zhengfang",
             "miankuo": 5,
             "jinshen": 3,
             "jianComposition": ["mingjian", "cijian", "cijian", "shaojian", "shaojian"],
             "faces": "zuobeichaonan"
           },
-          "east": { "role": "xiangfang", "miankuo": 3, "jinshen": 2 },
-          "west": { "role": "xiangfang", "miankuo": 3, "jinshen": 2 },
-          "southGate": { "role": "chuihuamen" }
+          "dong": { "role": "xiangfang", "miankuo": 3, "jinshen": 2 },
+          "xi": { "role": "xiangfang", "miankuo": 3, "jinshen": 2 },
+          "nanmen": { "role": "chuihuamen" }
         },
         "center": { "role": "tingyuan" },
         "peripheral": [
@@ -51,9 +51,9 @@
         "sequence": 3,
         "enclosure": {
           "relation": "weihe",
-          "north": { "role": "houzhaofang", "miankuo": 5, "jinshen": 2 },
-          "east": { "role": "xiangfang", "miankuo": 3, "jinshen": 2 },
-          "west": { "role": "xiangfang", "miankuo": 3, "jinshen": 2 }
+          "bei": { "role": "houzhaofang", "miankuo": 5, "jinshen": 2 },
+          "dong": { "role": "xiangfang", "miankuo": 3, "jinshen": 2 },
+          "xi": { "role": "xiangfang", "miankuo": 3, "jinshen": 2 }
         },
         "center": { "role": "tingyuan" }
       }
