@@ -49,17 +49,42 @@ TOUR_LOOK_DEG = 35            # 驻足"轻扫一眼"的偏转角（度，负=偏
 # 体素边长（米）。越小越细、box 越多；越大越省、体素感越弱。MVP 提速版适中取值。
 VOXEL_SIZE = 0.6
 
-# role key -> 兜底中文名 / 颜色（⑤ 造型层使用，纯内置，不依赖外部词表）
-ROLE_LABELS = {
-    "zhengfang": "正房", "xiangfang": "厢房", "daozuofang": "倒座房",
-    "houzhaofang": "后罩房", "chuihuamen": "垂花门", "erfang": "耳房",
-    "youlang": "游廊", "yingbi": "影壁", "tingyuan": "庭院", "yuanqiang": "院墙",
-    "zhaimen": "大门", "taiji": "台基",
-}
-# 用途 key -> 中文名（仅展示层回落用，与 ROLE_LABELS 同类：图谱未带 label 时的兜底）
-USAGE_LABELS = {
-    "guoting": "过厅",
-}
+# 中文名一律取自命名字典（dict.json）——⑤ 造型层与巡游路径都不再内置词表。
+# 内置表必然与字典漂移，而且已经漂过一次：houmen 字典里有「后门」、内置表没有，
+# ⑤ 于是把拼音 key 原样吐给前端（屏幕上直接显示 "houmen"）。
+# 表按 dict.json 的 mtime 缓存：本地改字典立即生效，不会出现「改了不生效」的假象。
+_DICT_LABELS = {"mtime": None, "flat": {}}
+
+
+def _dict_labels():
+    """dict.json -> 扁平 {key: 中文名}（跨类目合并；key 全库唯一，已核实无重名）。"""
+    path = os.path.join(KNOWLEDGE_DIR, "dict.json")
+    mt = os.path.getmtime(path)
+    if _DICT_LABELS["mtime"] != mt:
+        flat = {}
+        for cat, items in load_json(path).items():
+            if cat == "meta" or not isinstance(items, dict):
+                continue
+            for k, v in items.items():
+                if isinstance(v, dict) and isinstance(v.get("label"), str):
+                    flat[k] = v["label"]
+        _DICT_LABELS.update(mtime=mt, flat=flat)
+    return _DICT_LABELS["flat"]
+
+
+def _label_of(key, dflt=None, table=None):
+    """key -> 中文名（字典为准）。字典缺词条：给了 dflt 就回落，没给则报图谱缺陷
+    —— 不静默把拼音 key 当成中文名吐出去（那正是漂移发生时的表现）。"""
+    hit = (table if table is not None else _dict_labels()).get(key)
+    if hit:
+        return hit
+    if dflt is not None:
+        return dflt
+    raise ValueError(
+        "图谱缺陷：dict.json 缺词条 %r —— 中文名一律取自命名字典，"
+        "新增 role/key 须先在 dict.json 补词条" % (key,))
+
+
 ROLE_COLORS = {
     "zhengfang": 0xC0504D, "xiangfang": 0xE0A030, "daozuofang": 0x4F81BD,
     "houzhaofang": 0x9B59B6, "chuihuamen": 0x82A33A, "erfang": 0x9B59B6,
@@ -694,7 +719,7 @@ def build_tour_path(instance, comps=None):
 
         # —— 出下道门：由本院北界进入下一院；末院北面无门，止于北房之前 ——
         if i == last:
-            nlabel = ROLE_LABELS.get((p["bei"] or {}).get("role"), "院北")
+            nlabel = _label_of((p["bei"] or {}).get("role"), "院北")
             z_stop = z_north - nd - 1.2 if nd > 0 else z_north - 1.2
             path.append({"x": 0.0, "z": round(z_stop, 3), "y": 0.0, "label": f"{nlabel}前",
                          "pause": TOUR_PAUSE, "look": [0.0, round(z_north, 3)]})
@@ -713,7 +738,7 @@ def build_tour_path(instance, comps=None):
             # 坐标与改动前完全一致(仅补语义标签与驻足)，零穿实体结论不受影响。
             nm = p["bei"] or {}
             # 穿堂正房即过厅(guoting)，与图谱 passage 节点同义；图谱不区分是否 tingfangyuan，统一标「过厅」。
-            hall = USAGE_LABELS.get(nm.get("usage")) or "过厅"
+            hall = _label_of(nm.get("usage"), "过厅")
             next_name = plotted[i + 1]["c"].get("name") or f"第{i + 2}进" if i + 1 < len(plotted) else ""
             # 第一道门：南门(明间)——从内院进过厅（落脚台基面，避免踩墙/门槛）
             path.append({"x": 0.0, "z": round(z_north - nd, 3), "y": TOUR_STEP,
@@ -1177,12 +1202,13 @@ def _merge_ivs(ivs):
 
 
 # ---------------- ⑤ 几何造型引擎：构件 -> 体素 BOX 清单 ----------------
-def _voxelize_component(g, vox):
+def _voxelize_component(g, vox, labels):
     """构件(连续几何) -> 体素 BOX 网格（构件 : box = 图像 : 像素）。
 
     纯几何转换：把传入的构件实心切成边长为 vox 的体素网格。构件本身是实心还是
     空心围合（如房间拆成的墙/顶/地子构件），由 ④ 几何计算引擎决定，⑤ 不过问。
-    label/color 由所属构件继承（点选任意体素都能识别其构件）。
+    label 取自命名字典（labels 表由调用方一次取好，逐构件复用）；
+    color 由所属构件继承（点选任意体素都能识别其构件）。
     """
     role = g.get("role")
     c = g.get("center", {})
@@ -1197,7 +1223,7 @@ def _voxelize_component(g, vox):
     x0 = c.get("x", 0) - W / 2
     y0 = c.get("y", 0) - H / 2
     z0 = c.get("z", 0) - D / 2
-    label = ROLE_LABELS.get(role, role)
+    label = _label_of(role, table=labels)
     color = ROLE_COLORS.get(role, 0x999999)
     out = []
     for i in range(nx):
@@ -1217,11 +1243,13 @@ def geometry_to_boxes(geometry, vox=VOXEL_SIZE):
     """⑤ 几何造型引擎：构件 -> 体素 BOX 清单（真实多体素化，非 1 构件=1 box 占位）。
 
     选定 BOX 作为 MVP 表现基元，把每个构件按 VOXEL_SIZE 体素化成 box 网格。
-    label/color 由所属构件继承。未来切 B-rep 只改此处，④ 不动。
+    label 取自命名字典（此处一次取表、逐构件复用），color 由所属构件继承。
+    未来切 B-rep 只改此处，④ 不动。
     """
+    labels = _dict_labels()
     boxes = []
     for g in geometry:
-        boxes.extend(_voxelize_component(g, vox))
+        boxes.extend(_voxelize_component(g, vox, labels))
     return boxes
 
 
