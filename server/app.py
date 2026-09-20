@@ -7,7 +7,7 @@ BUILDING.WIKI · MVP 服务（重构版）
       │
       │  POST /api/command  {text} / {graph} / {graph, tour:true}
       ▼
-  [① 理解层 MVP 占位] text -> 种子实例（后续替换为混元 LLM 原生生成）
+  [① 理解层] text -> LLM 生成实例图谱骨架 -> 装配器补全为自包含 instance（无凭据/非法产物时回落确定性基线）
       ▼
   ④ 几何计算引擎（server/engine/geometry.py）
       │   实例图谱 -> 相对位置清单（米, Y-up）
