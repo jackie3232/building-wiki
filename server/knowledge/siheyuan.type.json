@@ -106,14 +106,7 @@
         "jinshen": {
           "ref": "jinshen",
           "desc": "进深"
-        },
-        "jianComposition": [
-          "mingjian",
-          "cijian",
-          "cijian",
-          "shaojian",
-          "shaojian"
-        ]
+        }
       },
       "structs": [
         "wuoding",
@@ -136,12 +129,7 @@
         },
         "jinshen": {
           "ref": "jinshen"
-        },
-        "jianComposition": [
-          "mingjian",
-          "cijian",
-          "cijian"
-        ]
+        }
       },
       "structs": [
         "wuoding",

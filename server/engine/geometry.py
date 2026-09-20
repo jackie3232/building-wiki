@@ -69,6 +69,9 @@ ROLE_COLORS = {
 
 _CN_NUM = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
            "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+# 正则字符类由上面这张表生成：表里加字（如「两」）正则自动跟上，
+# 不再出现「表里有 两→2、正则字符类却认不出 两」的两处漂移。
+_CJK_NUM = "".join(_CN_NUM)
 
 
 # ---------------- ① 合成占位：NL -> 自包含 instance ----------------
@@ -76,7 +79,7 @@ def _parse_jin(text):
     """从 NL 文本解析进数；未识别默认 3。"""
     if not text:
         return 3
-    m = re.search(r'([一二三四五六七八九十\d])\s*进', text)
+    m = re.search(r'([' + _CJK_NUM + r'\d])\s*进', text)
     if not m:
         return 3
     tok = m.group(1)
@@ -304,41 +307,59 @@ def build_instance(jin, omit=None):
     norms = rules_doc.get("norms", {})
     courtyards = []
 
-    # 院落名一律从命名字典取 label（字典驱动），代码内不硬编码中文串；取不到时回落兜底名。
-    def _cl(cat, key, dflt):
-        v = (dict_doc.get(cat) or {}).get(key)
-        return ((v or {}).get("label") if isinstance(v, dict) else None) or dflt
+    # 院名唯一事实源 = siheyuan.rules:sequence.naming（图谱驱动）。本层只做「按序求值、首个命中者胜出」，
+    # 不硬编码院名映射；规则里的 name 是命名字典 key，中文名一律由字典 label 给出（字典是命名权威）。
+    _naming = (rules_doc.get("sequence") or {}).get("naming") or {}
+    _naming_rules = _naming.get("rules") or []
+    _naming_fallback = _naming.get("fallback") or {}
+    if not _naming_rules or not _naming_fallback:
+        raise ValueError("图谱缺陷：siheyuan.rules 缺少 sequence.naming.rules / .fallback")
+    CN_NUM = {1: "一", 2: "二", 3: "三", 4: "四", 5: "五",
+              6: "六", 7: "七", 8: "八", 9: "九", 10: "十"}
 
-    N_TINGYUAN = _cl("空间角色", "tingyuan", "庭院")
-    N_WAI = _cl("院落", "waiyuan", "外院")
-    N_NEI = _cl("院落", "neiyuan", "内院")
-    N_HOU = _cl("院落", "houzhaoyuan", "后罩院")
-    N_TINGFANG = _cl("院落", "tingfangyuan", "厅房院")
-    CN_ORD = {2: "二", 3: "三", 4: "四", 5: "五"}
+    def _lbl(key):
+        """院名 key -> 字典 label。取不到即报错：缺词条是图谱缺陷，不静默兜底。"""
+        for cat in ("院落", "空间角色"):
+            v = (dict_doc.get(cat) or {}).get(key)
+            if isinstance(v, dict) and isinstance(v.get("label"), str):
+                return v["label"]
+        raise ValueError("图谱缺陷：院名 key「%s」在命名字典「院落/空间角色」中无 label" % key)
 
-    def _mid_name(k, jin):
-        """中间进(2..jin-1)的院名，按身份不按进号：
-        前堂后寝——jin>=4 时第二进为厅房院(前堂)，其北第一进为主院(内院·后寝)，
-        再北的次院依序记「内院·二/三」。三进无前堂，第二进即主院。"""
-        if jin >= 4 and k == 2:
-            return N_TINGFANG
-        if (jin >= 4 and k == 3) or (jin == 3 and k == 2):
-            return N_NEI
-        return "%s·%s" % (N_NEI, CN_ORD.get(k - 2, str(k - 2)))
+    def _court_name(k, jin):
+        """第 k 进（共 jin 进）的院名。规则逐条见 siheyuan.rules:sequence.naming（含各条 why）。"""
+        for r in _naming_rules:
+            at = r.get("at")
+            if at == "last":
+                if k != jin:
+                    continue
+            elif at != k:
+                continue
+            if "jinEq" in r and jin != r["jinEq"]:
+                continue
+            if "jinGte" in r and jin < r["jinGte"]:
+                continue
+            return _lbl(r["name"])
+        n = k - _naming_fallback.get("ordinalFrom", 2)
+        if n < 2:
+            # fallback 只服务「同类多次出现」的次院（序数≥2）。落到这里说明规则表有洞：
+            # 该进既无规则命中、又不属于次院 —— 是图谱缺陷，报错而不吐「内院·0」这种假名。
+            raise ValueError("图谱缺陷：第 %d 进（共 %d 进）在 sequence.naming 中无规则命中，"
+                             "且不满足 fallback 序数（序数算出为 %d）" % (k, jin, n))
+        return "%s·%s" % (_lbl(_naming_fallback["name"]), CN_NUM.get(n, str(n)))
 
     if jin <= 1:
         # 一进：无垂花门、无内外之分，此院既是入口院也是主院。影壁正对宅门 → 归此院。
         # 游廊暂不生成：抄手游廊是内院环形通道的细部做法，留待「加细节」阶段单独讨论其形制与归属。
-        courtyards.append(_cy(1, N_TINGYUAN,
+        courtyards.append(_cy(1, _court_name(1, jin),
             bei=_room("zhengfang", norms, type_doc), nan=_south_with_gate(norms, type_doc),
             dong=_room("xiangfang", norms, type_doc), xi=_room("xiangfang", norms, type_doc),
             peripheral=[{"role": "yingbi"}], perimeter=True))
     elif jin == 2:
         # 影壁正对宅门 → 归首院（外院）。游廊暂不生成（见上）。
-        courtyards.append(_cy(1, N_WAI, nan=_south_with_gate(norms, type_doc),
+        courtyards.append(_cy(1, _court_name(1, jin), nan=_south_with_gate(norms, type_doc),
                               beimen={"role": "chuihuamen"},
                               peripheral=[{"role": "yingbi"}], perimeter=True))
-        courtyards.append(_cy(2, N_NEI, bei=_room("zhengfang", norms, type_doc),
+        courtyards.append(_cy(2, _court_name(2, jin), bei=_room("zhengfang", norms, type_doc),
             dong=_room("xiangfang", norms, type_doc), xi=_room("xiangfang", norms, type_doc),
             peripheral=None, perimeter=True))
     else:
@@ -346,7 +367,7 @@ def build_instance(jin, omit=None):
         #           做穿堂（南北贯通）连通下一进。穿堂是正房的一种做法，随正房归属本院，
         #           **不是门**（故图谱记 ring.nan.thru，不记 gate）。末进为后罩院。
         # 影壁归首院（正对宅门）。游廊暂不生成（见上）。
-        courtyards.append(_cy(1, N_WAI, nan=_south_with_gate(norms, type_doc),
+        courtyards.append(_cy(1, _court_name(1, jin), nan=_south_with_gate(norms, type_doc),
                               beimen={"role": "chuihuamen"},
                               peripheral=[{"role": "yingbi"}], perimeter=True))
         for k in range(2, jin):
@@ -355,7 +376,7 @@ def build_instance(jin, omit=None):
             zf = _room("zhengfang", norms, type_doc)
             zf["chuantang"] = True
             peripheral = None
-            courtyards.append(_cy(k, _mid_name(k, jin),
+            courtyards.append(_cy(k, _court_name(k, jin),
                 bei=zf, dong=_room("xiangfang", norms, type_doc),
                 xi=_room("xiangfang", norms, type_doc), peripheral=peripheral, perimeter=True))
         # 后门（houmen）：后罩房西北角一间改门道，通北胡同，与宅门「一间改门道」同法、东西相对。
@@ -364,7 +385,7 @@ def build_instance(jin, omit=None):
         # 后罩房只出现在 jin>=3 的末进，故一/二进自然无后门，不需另加开关。
         hzf = _room("houzhaofang", norms, type_doc)
         hzf["gate"] = {"role": "houmen"}
-        courtyards.append(_cy(jin, N_HOU,
+        courtyards.append(_cy(jin, _court_name(jin, jin),
             bei=hzf, dong=_room("xiangfang", norms, type_doc),
             xi=_room("xiangfang", norms, type_doc), perimeter=True))
 

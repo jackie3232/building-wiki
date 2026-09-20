@@ -13,6 +13,8 @@
 // 一房多门（穿堂正房）拼「房名 + 南门/北门」——前端不硬编门的中文名。
 // ---------------------------------------------------------------------------
 
+import { makeDictReader } from "./model.js";
+
 const NS = "http://www.w3.org/2000/svg";
 
 function el(tag, attrs, parent) {
@@ -22,15 +24,29 @@ function el(tag, attrs, parent) {
   return n;
 }
 
-export function makeDictReader(dict) {
-  const lbl = (k) => (k ? ((dict[k] && dict[k].label) || k) : "—");
-  const dsc = (k) => (k && dict[k] ? dict[k].desc || "" : "");
-  return { lbl, dsc };
-}
-
-const SIDE_CN = { nan: "南", bei: "北", dong: "东", xi: "西" };
 /* 联通弧线的侧偏量：够两条边分开，又不至于甩到别的节点身上 */
 const ARC_OFF = 18;
+
+/* 开间展开：间数 = 面阔 miankuo，自中轴向两侧对称取名（offset 见 dict「开间」类目）。
+   与 ④ 引擎同规则，两边各一份；此处只供展示，间不落库、不成节点。 */
+export function expandBays(miankuo, dict) {
+  const n = Number(miankuo);
+  if (!Number.isFinite(n) || n < 1) return null;
+  const byOffset = {};
+  let maxOff = -1;
+  for (const v of Object.values(dict)) {
+    if (v && typeof v.offset === "number") {
+      byOffset[v.offset] = v.label;
+      if (v.offset > maxOff) maxOff = v.offset;
+    }
+  }
+  if (maxOff < 0) return null;
+  const mid = (n - 1) / 2;
+  return Array.from({ length: n }, (_, i) => {
+    const off = Math.min(Math.round(Math.abs(i - mid)), maxOff);
+    return byOffset[off] || "间";
+  });
+}
 
 function subtitleOf(n) {
   if (n.cat === "domain") return n.jin != null ? `${n.jin} 进` : "";
@@ -49,7 +65,7 @@ function nodeTip(n, dict, meta, byId) {
   const { lbl, dsc } = makeDictReader(dict);
   const out = [];
   if (n.cat === "domain") {
-    out.push(`域 · ${lbl(n.role)}`);
+    out.push(lbl(n.role));
     if (n.jin != null) out.push(`${n.jin} 进院落`);
     if (meta.desc) out.push(meta.desc);
     if (meta.generatedBy) out.push(`生成：${meta.generatedBy}`);
@@ -70,7 +86,7 @@ function nodeTip(n, dict, meta, byId) {
     if (n.relation) out.push(`围合关系：${lbl(n.relation)}`);
     out.push(`四周围合：${n.perimeter ? "有" : "无"}`);
     const b = n.boundary || {};
-    const parts = Object.entries(b).map(([s, k]) => `${SIDE_CN[s] || s}侧：${lbl(k)}`);
+    const parts = Object.entries(b).map(([s, k]) => `${lbl(s)}侧：${lbl(k)}`);
     if (parts.length) out.push("各侧围合：" + parts.join("、"));
     if (n.entry && n.entry.thru) {
       out.push(`南界入口：经上一进「${lbl(n.entry.thru.of)}」明间过厅进入`);
@@ -82,7 +98,10 @@ function nodeTip(n, dict, meta, byId) {
     if (n.mirror) out.push(`与「${lbl(n.mirror)}」东西对称`);
     const info = n.info || {};
     const bits = [];
-    if (info.miankuo != null) bits.push(`面阔 ${info.miankuo} 间`);
+    if (info.miankuo != null) {
+      const bays = expandBays(info.miankuo, dict);
+      bits.push(bays ? `面阔 ${info.miankuo} 间：${bays.join(" · ")}` : `面阔 ${info.miankuo} 间`);
+    }
     if (info.jinshen != null) bits.push(`进深 ${info.jinshen} 间`);
     if (bits.length) out.push(bits.join(" · "));
     // 实体属性：等级 / 材质 / 通高 / 台明 —— 图谱里本就有，中文名查字典（sandeng→三等·配房）
@@ -107,7 +126,7 @@ function nodeTip(n, dict, meta, byId) {
           return c ? (c.name || `第${(c.court || {}).sequence}进`) : id;
         });
         out.push(`分界：${names.map((x) => `「${x}」`).join(" | ")}`);
-        out.push("相邻两院的共享边界 · 不独属于任一院，故归于域");
+        out.push("相邻两院的共享边界 · 不独属于任一院，故挂到四合院顶层");
       }
       if (n.role === "zhaimen") out.push("宅院正门 · 街 → 院（坎宅巽门）");
       if (n.role === "houmen") out.push("宅院后门 · 院 → 北胡同（西北角一间改门道）");
@@ -119,9 +138,10 @@ function nodeTip(n, dict, meta, byId) {
     const owner = byId.get(n.belongsTo);
     if (owner) {
       // 院节点用院名（外院/内院…），不要用它的 role —— 院的 role 取的是中心空间「庭院」
-      const on = owner.cat === "domain" ? "域"
-        : owner.cat === "court" ? (owner.name || `第${(owner.court || {}).sequence}进`)
-          : lbl(owner.role);
+      // 顶层（cat=domain）节点的 role 就是实例类型（siheyuan → 四合院），直接用它的 label，
+      // 不加任何前缀壳 —— 字典里没有「域」这个词条，顶层就是四合院实例本身。
+      const on = owner.cat === "court" ? (owner.name || `第${(owner.court || {}).sequence}进`)
+        : lbl(owner.role);
       out.push(`归属：${on}`);
     }
   }
@@ -165,7 +185,7 @@ export function createRenderer(layers, view, dict, meta) {
     if ((doorsOnHost.get(n.host) || 0) > 1) {                    // 一房多门（穿堂正房）
       return base + (n.side === "nan" ? "南门" : n.side === "bei" ? "北门" : "门");
     }
-    const tag = (n.side === "dong" || n.side === "xi") ? SIDE_CN[n.side] : "";
+    const tag = (n.side === "dong" || n.side === "xi") ? lbl(n.side) : "";
     return tag + base + "门";                                    // 东厢房门 / 倒座房门
   }
 

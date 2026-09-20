@@ -32,12 +32,19 @@
 
 /* 两类关系：zucheng = 包含（静·骨架），liantong = 联通（动·动线）。 */
 export const RELS = [
-  { rel: "zucheng", label: "包含", desc: "静态组织：域 ⊃ 院落 ⊃ 建筑/门/附属" },
+  { rel: "zucheng", label: "包含", desc: "静态组织：四合院 ⊃ 院落 ⊃ 建筑/门/附属" },
   { rel: "liantong", label: "联通", desc: "动态组织（动线）：经门，由一空间通达另一空间" },
 ];
 const REL_SET = new Set(RELS.map((r) => r.rel));
 
-export const SIDE_TAG = { nan: "南", bei: "北", dong: "东", xi: "西" };
+/* 中文名一律取自后端命名字典（含方位词），前端不另存词表；字典缺 key 就回落显示 key。
+   图谱视图的 model / render 两层共用这一份读取器，避免「同一张词表两处各存一遍」。 */
+export function makeDictReader(dict) {
+  const lbl = (k) => (k ? ((dict[k] && dict[k].label) || k) : "—");
+  const dsc = (k) => (k && dict[k] ? dict[k].desc || "" : "");
+  return { lbl, dsc };
+}
+
 const roleOf = (o) => (o && o.role) || null;
 
 /* 一侧的界：优先用图谱层声明的 ring；无 ring（手写/旧版图谱）时按 enclosure 兜底。 */
@@ -75,7 +82,8 @@ function sideInfo(court, side, isSouthmost) {
 
 const cid = (c) => String(c.id || `cy${c.sequence}`);
 
-export function buildModel(graph) {
+export function buildModel(graph, dict) {
+  const { lbl } = makeDictReader(dict || {});
   const data = (graph && graph.data) || {};
   const courts = [...(data.courtyards || [])]
     .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
@@ -91,8 +99,17 @@ export function buildModel(graph) {
     links.push({ source: si, target: ti, rel, note: note || "" });
   };
 
-  /* —— 域 —— */
-  const root = push({ id: "domain", cat: "domain", role: data.type || "instance", jin: data.jin });
+  /* —— 四合院根节点（域）：三块附属知识都挂在它身上 ——
+     meta  = 本图谱的元信息（关于这张图的图）
+     rules = appliedRules.norms 快照（模数 / 院深比 / 墙厚 / 门宽…本实例用到的那部分）
+     dict  = appliedDict（本实例用到的命名字典子集，拼音 key ↔ 中文名）
+     三者都是「关于这张图的」，故随根节点走；点根节点展开查看（见 attached.js）。 */
+  const root = push({
+    id: "domain", cat: "domain", role: data.type || "instance", jin: data.jin,
+    meta: (graph && graph.meta) || {},
+    rules: ((graph && graph.appliedRules) || {}).norms || {},
+    dict: (graph && graph.appliedDict) || {},
+  });
 
   /* —— 院落：按中轴序列；域 ⊃ 院落（包含）。seq 供布局按进数排序 —— */
   const courtNodes = courts.map((c) => {
@@ -148,7 +165,7 @@ export function buildModel(graph) {
       const bn = push({
         id: `B:${cid(c)}:${side}`, cat: "building", role: info.provider,
         side, info, court: c,
-        encloses: `${SIDE_TAG[side]}面 · 围合第${c.sequence}进院`,
+        encloses: `${lbl(side)}面 · 围合第${c.sequence}进院`,
       });
       bnode.set(`${cid(c)}:${side}`, bn);
       link(cn, bn, "zucheng");

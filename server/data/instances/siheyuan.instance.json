@@ -1,11 +1,9 @@
 {
   "meta": {
     "type": "siheyuan",
-    "desc": "标准三进四合院实例（工程文件·自包含）。不依赖外部知识中心：实例数据见 data，生成所依据的规则快照见 appliedRules。",
-    "generatedAt": "2026-09-14",
-    "zeroCoord": true,
-    "deviation": "标准型，未偏离",
-    "note": "规制数值为占位标准型，待文化建设校准；本文件用于端到端链路首测"
+    "desc": "北京3进四合院实例（由类型图谱+规则库合成，工程文件·自包含）",
+    "generatedBy": "build_instance (① placeholder)",
+    "zeroCoord": true
   },
   "data": {
     "type": "siheyuan",
@@ -17,10 +15,56 @@
         "sequence": 1,
         "enclosure": {
           "relation": "weihe",
-          "nan": { "role": "daozuofang", "miankuo": 5, "jinshen": 2, "faces": "bei" },
-          "beimen": { "role": "chuihuamen" }
+          "nan": {
+            "role": "daozuofang",
+            "miankuo": 5,
+            "jinshen": 1.4,
+            "door": {
+              "at": "mingjian"
+            },
+            "height": 3.3,
+            "taiming": 0.3,
+            "level": "sandeng",
+            "material": "qingzhuan",
+            "gate": {
+              "role": "zhaimen"
+            }
+          },
+          "beimen": {
+            "role": "chuihuamen"
+          }
         },
-        "center": { "role": "tingyuan" }
+        "center": {
+          "role": "tingyuan"
+        },
+        "perimeter": true,
+        "peripheral": [
+          {
+            "role": "yingbi"
+          }
+        ],
+        "role": "waiyuan",
+        "ring": {
+          "bei": {
+            "provider": null,
+            "kind": "kaziqiang",
+            "gate": "chuihuamen"
+          },
+          "nan": {
+            "provider": "daozuofang",
+            "kind": "houyanqiang",
+            "gate": "zhaimen",
+            "thru": null
+          },
+          "dong": {
+            "provider": null,
+            "kind": "weiqiang"
+          },
+          "xi": {
+            "provider": null,
+            "kind": "weiqiang"
+          }
+        }
       },
       {
         "id": "cy2",
@@ -31,75 +75,409 @@
           "bei": {
             "role": "zhengfang",
             "miankuo": 5,
-            "jinshen": 3,
-            "jianComposition": ["mingjian", "cijian", "cijian", "shaojian", "shaojian"],
-            "faces": "zuobeichaonan"
+            "jinshen": 2,
+            "door": {
+              "at": "mingjian"
+            },
+            "height": 3.3,
+            "taiming": 0.3,
+            "level": "yideng",
+            "material": "qingzhuan",
+            "chuantang": true
           },
-          "dong": { "role": "xiangfang", "miankuo": 3, "jinshen": 2 },
-          "xi": { "role": "xiangfang", "miankuo": 3, "jinshen": 2 },
-          "nanmen": { "role": "chuihuamen" }
+          "dong": {
+            "role": "xiangfang",
+            "miankuo": 3,
+            "jinshen": 1.4,
+            "door": {
+              "at": "mingjian"
+            },
+            "height": 3.3,
+            "taiming": 0.3,
+            "level": "erdeng",
+            "material": "qingzhuan"
+          },
+          "xi": {
+            "role": "xiangfang",
+            "miankuo": 3,
+            "jinshen": 1.4,
+            "door": {
+              "at": "mingjian"
+            },
+            "height": 3.3,
+            "taiming": 0.3,
+            "level": "erdeng",
+            "material": "qingzhuan"
+          }
         },
-        "center": { "role": "tingyuan" },
-        "peripheral": [
-          { "role": "youlang" },
-          { "role": "yingbi" }
-        ]
+        "center": {
+          "role": "tingyuan"
+        },
+        "perimeter": true,
+        "role": "neiyuan",
+        "ring": {
+          "bei": {
+            "provider": "zhengfang",
+            "kind": "houyanqiang",
+            "gate": null
+          },
+          "nan": {
+            "provider": null,
+            "kind": "weiqiang",
+            "gate": "chuihuamen",
+            "thru": null
+          },
+          "dong": {
+            "provider": "xiangfang",
+            "kind": "houyanqiang"
+          },
+          "xi": {
+            "provider": "xiangfang",
+            "kind": "houyanqiang"
+          }
+        }
       },
       {
         "id": "cy3",
-        "name": "正院",
+        "name": "后罩院",
         "sequence": 3,
         "enclosure": {
           "relation": "weihe",
-          "bei": { "role": "houzhaofang", "miankuo": 5, "jinshen": 2 },
-          "dong": { "role": "xiangfang", "miankuo": 3, "jinshen": 2 },
-          "xi": { "role": "xiangfang", "miankuo": 3, "jinshen": 2 }
+          "bei": {
+            "role": "houzhaofang",
+            "miankuo": 5,
+            "jinshen": 1.5,
+            "door": {
+              "at": "mingjian"
+            },
+            "height": 3.3,
+            "taiming": 0.3,
+            "level": "erdeng",
+            "material": "qingzhuan",
+            "gate": {
+              "role": "houmen"
+            }
+          },
+          "dong": {
+            "role": "xiangfang",
+            "miankuo": 3,
+            "jinshen": 1.4,
+            "door": {
+              "at": "mingjian"
+            },
+            "height": 3.3,
+            "taiming": 0.3,
+            "level": "erdeng",
+            "material": "qingzhuan"
+          },
+          "xi": {
+            "role": "xiangfang",
+            "miankuo": 3,
+            "jinshen": 1.4,
+            "door": {
+              "at": "mingjian"
+            },
+            "height": 3.3,
+            "taiming": 0.3,
+            "level": "erdeng",
+            "material": "qingzhuan"
+          }
         },
-        "center": { "role": "tingyuan" }
+        "center": {
+          "role": "tingyuan"
+        },
+        "perimeter": true,
+        "role": "houzhaoyuan",
+        "ring": {
+          "bei": {
+            "provider": "houzhaofang",
+            "kind": "houyanqiang",
+            "gate": "houmen"
+          },
+          "nan": {
+            "provider": "zhengfang",
+            "kind": "houyanqiang",
+            "gate": null,
+            "thru": {
+              "via": "chuantang",
+              "of": "zhengfang",
+              "courtyard": "内院"
+            }
+          },
+          "dong": {
+            "provider": "xiangfang",
+            "kind": "houyanqiang"
+          },
+          "xi": {
+            "provider": "xiangfang",
+            "kind": "houyanqiang"
+          }
+        }
       }
     ]
   },
   "appliedRules": {
-    "meta": {
-      "type": "siheyuan",
-      "source": "siheyuan.rules",
-      "snapshotNote": "生成时从规则库拷入的快照；后续规则库变更不影响本实例。真源仍为外部规则库。"
-    },
-    "paramRanges": {
-      "jin": { "range": [1, 3], "desc": "院落进数允许范围（扩展四进只需放宽此处）" }
-    },
-    "orientation": [
-      { "role": "zhengfang", "must": "zuobeichaonan", "desc": "正房坐北朝南" },
-      { "role": "daozuofang", "faces": "bei", "desc": "倒座房朝北，与正房相对" },
-      { "role": "xiangfang", "faces": ["dong", "xi"], "desc": "厢房东/西向，山墙朝外" }
-    ],
-    "position": [
-      { "role": "zhengfang", "at": "zhongzhou_north", "constraint": "juzhong", "desc": "正房居中、位于中轴北端" },
-      { "role": "xiangfang", "at": ["dong", "xi"], "constraint": "duichen", "desc": "厢房东西对称" },
-      { "role": "daozuofang", "at": "nan_end", "desc": "倒座房位于院落最南" },
-      { "role": "chuihuamen", "between": "courtyards", "desc": "垂花门分隔相邻院落" },
-      { "role": "houzhaofang", "at": "north_of_zhengfang", "desc": "后罩房位于正房之后" }
-    ],
-    "sequence": {
-      "desc": "进沿中轴南北序列；进数↑院落往南加",
-      "byJin": {
-        "1": ["正院(正房北 + 厢房东西 + 倒座房南 + 庭院)"],
-        "2": ["外院", "chuihuamen", "内院"],
-        "3": ["外院", "chuihuamen", "内院", "正院(含后罩房)"]
-      }
-    },
     "norms": {
       "modus": 3.3,
+      "courtDepthRatio": {
+        "byRole": {
+          "waiyuan": 0.3,
+          "tingfangyuan": 0.45,
+          "neiyuan": 0.6,
+          "houzhaoyuan": 0.42,
+          "tingyuan": 0.6
+        },
+        "default": 0.45,
+        "desc": "露天院落进深=面阔×ratio，按院落角色：waiyuan=外院(最浅，南北短东西长)、tingfangyuan=厅房院(前堂，居中)、neiyuan=内院主院(最大，近正方形)、houzhaoyuan=后罩院及其前的次院(居中)。一进仅 tingyuan(庭院，既入口院又是主院、无独立院名)；二进=waiyuan+neiyuan；三进=waiyuan+neiyuan+houzhaoyuan；四进及以上前堂后寝=waiyuan+tingfangyuan+neiyuan+houzhaoyuan(+次院)。neiyuan=正房所在的主院(后寝)，取最靠南的正房院但跳过作过厅(usage=guoting)的那一进——过厅是前堂不是后寝；tingfangyuan=作过厅的那一进；waiyuan=倒座所在的外院；houzhaoyuan=neiyuan 之后的院。"
+      },
+      "room": {
+        "thickness": 0.3,
+        "heightDefault": 3.3,
+        "taimingOutset": 0.5,
+        "desc": "房间围合墙/顶/地厚度(米)，原 ④ 常量 WALL_THICKNESS。房屋自身厚度，与院墙厚度(wall.*)语义不同故分列。heightDefault：角色未声明 height 时的回落基准。taimingOutset：台基自房屋外墙面线外扩的距离(米)——台明露出部分即为可见台座。"
+      },
+      "door": {
+        "width": 1.6,
+        "height": 2.1,
+        "desc": "房门洞口宽/高(米，高自地面起)，原 ④ 常量 DOOR_WIDTH / DOOR_HEIGHT。与门体面阔(gateSpan)语义不同：门洞是墙上开的缺，门体是一栋建筑。"
+      },
+      "zhaimen": {
+        "gateSpan": 3.0,
+        "height": 4.2,
+        "eastMargin": 0.8,
+        "desc": "宅门(大门)：门道面阔 gateSpan=3.0；门楼屋顶高 height=4.2(高于普通房屋)；eastMargin=门道东缘距院墙东端留白(米)，使东南角院墙完整闭合。进深同所在倒座房，不单列。"
+      },
+      "houmen": {
+        "gateSpan": 3.0,
+        "westMargin": 0.8,
+        "desc": "后门：门道面阔 gateSpan=3.0(约一间，比照宅门)；westMargin=门道西缘距院墙西端留白(米)，使西北角院墙完整闭合。与宅门的两点差异：①后门不带门楼，故不单列 height（门道高=同排后罩房高）；②位于西端而非东端。进深同所在后罩房，不单列。"
+      },
+      "layout": {
+        "xiangfang": {
+          "lengthMode": "miankuo",
+          "aisle": 1.5,
+          "zAlign": "center",
+          "desc": "厢房沿庭院方向(Z)长度取自身面阔(3间×modus≈9.9m)，居中放置在正房与倒座之间的庭院区域，南北两端各留1.5m通道，使中央庭院完整保留（不填满庭院、不与正房/倒座紧贴）"
+        }
+      },
+      "chuihuamen": {
+        "gateSpan": 3.0,
+        "height": 3.6,
+        "depth": 1.2,
+        "desc": "垂花门面阔约一间(3.0m，比照宅门门道 gateSpan)；门楼比门道顶(3.3)略抬高至3.6；depth=门道进深(米)。"
+      },
+      "peripheral": {
+        "youlang": {
+          "height": 2.5,
+          "depth": 1.2,
+          "spanRatio": 0.85,
+          "colSpacing": 2.5,
+          "roofThickness": 0.2,
+          "desc": "游廊：height=廊顶高(米，原 ④ 常量 PERIPH_HEIGHT)；depth=廊深；spanRatio=廊长占房屋面阔比例；colSpacing=柱间距(米)；roofThickness=廊顶板厚。中轴穿堂口按 door.width 断开。"
+        },
+        "yingbi": {
+          "height": 2.5,
+          "width": 3.0,
+          "depth": 0.5,
+          "zOffset": 2.0,
+          "xInset": 0.5,
+          "desc": "影壁：height=高；width=面宽；depth=厚；zOffset=自院落南界北移距离(米)；xInset=自东界内收距离(米)。zOffset 使影壁距宅门门道轴线约 4.2m（合「距门内约丈余」），同时在影壁南面与倒座北檐之间留出可通行走道：取 1.2 时走道仅 0.95m，0.5m 占据格下人体无可行区间（实测巡游擦碰），故取 2.0。"
+        }
+      },
+      "wall": {
+        "height": 3.3,
+        "thickness": 0.4,
+        "outerThickness": 0.4,
+        "desc": "院墙默认高3.3m、厚0.4m；外围围墙可略高(3.6m)"
+      },
       "zhengfang": {
         "miankuo": 5,
-        "ratio": { "mingjian": 10, "cijian": 8, "shaojian": 6 },
-        "jinshen": 3,
-        "desc": "正房面阔5间(1明+2次+2梢)；明间最宽，次间≈0.8明间，梢间递减"
+        "jinshen": 2,
+        "height": 3.3,
+        "taiming": 0.3,
+        "desc": "正房面阔5间(1明+2次+2梢)；进深约6.5m(≈2×modus)，据《北京老城保护房屋修缮技术导则2019》正房五檩/七檩进深6.5~7m。height 暂与厢房持平(3.3)，待按等级校准——正房应最高。taiming=台明高，见 norms.taiming.desc。"
       },
-      "xiangfang": { "miankuo": 3, "jinshen": 2, "desc": "厢房面阔3间" },
-      "daozuofang": { "miankuo": 5, "jinshen": 2, "desc": "倒座房面阔约同正房" },
-      "houzhaofang": { "miankuo": 5, "desc": "后罩房面阔约同正房" },
-      "note": "⚠️ 占位标准型，待文化建设校准"
+      "xiangfang": {
+        "miankuo": 3,
+        "jinshen": 1.4,
+        "height": 3.3,
+        "taiming": 0.3,
+        "desc": "厢房面阔3间；进深约4.5m(≈1.4×modus)，据导则厢房无廊进深4m、带廊5m。height 原 ④ 常量 WING_HEIGHT。taiming=台明高，见 norms.taiming.desc。"
+      },
+      "daozuofang": {
+        "miankuo": 5,
+        "jinshen": 1.4,
+        "height": 3.3,
+        "taiming": 0.3,
+        "desc": "倒座房面阔约同正房；进深较浅约4.5m。height 原 ④ 常量 WING_HEIGHT。taiming=台明高，见 norms.taiming.desc。"
+      },
+      "houzhaofang": {
+        "miankuo": 5,
+        "jinshen": 1.5,
+        "height": 3.3,
+        "taiming": 0.3,
+        "desc": "后罩房面阔约同正房；进深较浅约5m。height 原 ④ 常量 WING_HEIGHT。taiming=台明高，见 norms.taiming.desc。"
+      }
+    }
+  },
+  "appliedDict": {
+    "meta": {
+      "scope": "siheyuan",
+      "version": "1.0",
+      "note": "LLM 唯一合法词表；类型图谱 / rules 只能引用下列 key。MVP 范围：北京四合院。字段约定：label=唯一输出名；alias=仅用于输入侧识别（同物异名归一，输出不吐）；coined=true 表示文献无此词、系本应用内定的统一叫法。",
+      "categories": [
+        "建筑类型",
+        "空间角色",
+        "院落",
+        "构件",
+        "方位",
+        "尺度模数",
+        "开间",
+        "关系",
+        "材质",
+        "等级",
+        "用途"
+      ]
+    },
+    "建筑类型": {
+      "siheyuan": {
+        "label": "四合院",
+        "desc": "以正房、东西厢房、倒座房四面围合成院的北方传统合院式民居；本 MVP 范围为北京四合院"
+      }
+    },
+    "空间角色": {
+      "zhengfang": {
+        "label": "正房",
+        "desc": "坐北朝南正中的主屋，等级最高、面阔最大"
+      },
+      "xiangfang": {
+        "label": "厢房",
+        "desc": "院落东西两侧对称布置的次屋"
+      },
+      "daozuofang": {
+        "label": "倒座房",
+        "desc": "院落最南、朝北，与正房相对"
+      },
+      "houzhaofang": {
+        "label": "后罩房",
+        "desc": "正房之后、院落最北的一排屋"
+      },
+      "tingyuan": {
+        "label": "庭院",
+        "desc": "由房屋围合出的露天院落"
+      },
+      "chuihuamen": {
+        "label": "垂花门",
+        "desc": "分隔外院与内院的内门，装饰性"
+      },
+      "yingbi": {
+        "label": "影壁",
+        "desc": "正对宅门、立于门内侧的屏蔽短墙，遮挡外人直视院内并美化出入口；距门内约丈余，与大门互相陪衬烘托。形制分独立影壁（一字影壁，独立砌筑）与座山影壁（砌在厢房南山墙上、与山墙连为一体）。归属判据：正对哪道门，就归那道门所在之院——宅门影壁属外院（第一进）；垂花门之后的屏门属内院且在中轴。大门外的照壁（胡同对面）与撇山影壁（门外两侧八字）不在宅院之内。",
+        "source": "科普中国·百度百科「影壁」：大门内或屏门内做屏蔽作用的墙壁，距门内约丈余，分独立影壁与座山影壁；siheyuan.vip《北京四合院的基本格局》「进门后迎面是镶砌在东厢房南山墙上的座山影壁」；快懂百科「无论门第高低，大门内都有一扇影壁」"
+      },
+      "zhaimen": {
+        "label": "大门",
+        "desc": "四合院主入口（宅门/街门）：倒座房东端一间改门道+门楼，位于院落东南角（坎宅巽门），门道南北贯通（临街↔内院），与南院墙缺口对齐"
+      },
+      "houmen": {
+        "label": "后门",
+        "desc": "宅院对外的后出口：后罩房（最末一进）西北角一间空出改作门道，南北贯通，通向北面另一条胡同。**条件性构件**——仅当宅后临街才设；后罩房后檐墙通常不开门窗（安全防御），无后门时此位即实墙。与大门呼应：三进院总长约 50~60m，恰等于北京两条胡同间距，故大门面南胡同、后门面北胡同。图谱记在后罩房上（gate=houmen），与大门记在倒座房上（gate=zhaimen）对称；位置西北角由规则库 position 声明，不占中轴。",
+        "source": "中国民族建筑研究会（人民日报号《中规中矩的“中国范”：北京四合院的典型布局》）「三进院子的总长度大约在50~60米，恰好与北京城内很多地区两条胡同之间的距离相等，前面的大门和最后面的后门可以分别面临南北两条胡同」「后照房的西北角设有后门，通向北面的另一条胡同」；北京晚报·刘孝存《老北京四合院探微》「院落若是有后门，则开在院落后院的西北角」；《老房子·北京四合院》「如果四合院的后面临街，那么还可以将西北角的一个房间空出来作为后门使用」。反证：《真实的老北京四合院·后罩房篇》「后罩房只有朝南的一面有门窗，后檐墙上没有后窗，一般也不会设置后门」"
+      },
+      "chuantang": {
+        "label": "穿堂",
+        "desc": "正房明间（中央开间）做成南北贯通的过厅，连通本院与下一进院。**它是正房的一种做法，不是独立的门**：随正房归属其所在院，故图谱记正房属性 chuantang=true、院界记 ring.nan.thru（**不记 gate**），视图不立门节点。与「过厅」是一体两面——过厅强调厅堂功能，穿堂强调穿行功能。",
+        "source": "旬邑唐家大院「前后院之间那座作为分隔的客厅叫做穿堂过厅……前后贯通可穿行」；三进院另一种格局「将二进院正房明间做成过厅，宅人从中路进入后院」"
+      },
+      "kaziqiang": {
+        "label": "卡子墙",
+        "desc": "分隔外院与内院、东西厢房之间的院墙，正中开垂花门"
+      },
+      "weiqiang": {
+        "label": "外围围墙",
+        "desc": "整座院落群最外圈连续围墙，高大不开窗，围合整个四合院；各进院落外圈段拼合即构成它"
+      },
+      "houyanqiang": {
+        "label": "后檐墙",
+        "desc": "建筑自带的山墙/后檐墙，兼作院落边界：正房/后罩房后檐墙=其北界屏障，倒座后檐墙=临街南屏障，厢房后檐墙=院子左右屏障"
+      }
+    },
+    "院落": {
+      "waiyuan": {
+        "label": "外院",
+        "alias": [
+          "前院",
+          "倒座院",
+          "外宅",
+          "第一进院"
+        ],
+        "desc": "垂花门以南、由倒座房与宅门影壁围合的院落；对外接待区，「非请不得入内」。南北短而东西长，是宅院第一进。",
+        "source": "科技日报「第一进院（前院）」；匠欣亭「垂花门以外的倒座房或厅房及其所属院落为外宅，是接待外来宾客的地方」"
+      },
+      "neiyuan": {
+        "label": "内院",
+        "alias": [
+          "正院",
+          "主院",
+          "内宅",
+          "中庭",
+          "正房院"
+        ],
+        "desc": "垂花门以内、由正房与东西厢房（及抄手游廊）围合的院落；全院主体，家长起居中心，庭院近正方形（11~15m 见方）。全院唯一，故为「主院」；多进宅院取前堂后寝格局时，主院位于最后一道垂花门之后。",
+        "source": "光明日报「垂花门与正房之间的院落是四合院的主院」；科技日报「第二进院（正院）」；帽儿胡同11号四合院「第三进院为正房院」（五进实例，第二进为正厅、第三进为正房院）"
+      },
+      "houzhaoyuan": {
+        "label": "后罩院",
+        "alias": [
+          "后院",
+          "后照院"
+        ],
+        "desc": "正（内）院之北、由后罩房（二层称后罩楼）围合的狭长院落，南北进深约 6~8m；女眷闺房、仆役居所与储藏，西北角设后门通北胡同。为宅院最末一进。",
+        "source": "中国民族建筑研究会「第三进院…后院也叫后照院…最北面排列一长溜的后照房（也可以写为『后罩房』）」；百度百科「后罩房位于四合院的最后」"
+      }
+    },
+    "尺度模数": {
+      "miankuo": {
+        "label": "面阔",
+        "desc": "面阔间数；面阔米数 = 间数 × 每间模数"
+      }
+    },
+    "开间": {
+      "mingjian": {
+        "label": "明间",
+        "desc": "正中开间，面阔最宽，对外开门",
+        "offset": 0
+      }
+    },
+    "关系": {
+      "weihe": {
+        "label": "围合",
+        "desc": "房屋包围庭院"
+      }
+    },
+    "材质": {
+      "qingzhuan": {
+        "label": "青砖砌",
+        "family": "zhuan",
+        "desc": "房屋墙体：青砖小砖砌筑（正房/厢房/倒座房/后罩房/耳房）"
+      }
+    },
+    "等级": {
+      "yideng": {
+        "label": "一等·主房",
+        "level": 1,
+        "desc": "正房：全院等级最高（面阔最大、台基最高）"
+      },
+      "erdeng": {
+        "label": "二等·次房",
+        "level": 2,
+        "desc": "厢房 / 后罩房 / 耳房：等级次于正房"
+      },
+      "sandeng": {
+        "label": "三等·配房",
+        "level": 3,
+        "desc": "倒座房：临街配房，等级再次"
+      }
     }
   }
 }

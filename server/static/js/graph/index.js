@@ -15,6 +15,7 @@
 import { RELS, buildModel } from "./model.js";
 import { createLayout } from "./layout.js";
 import { createRenderer } from "./render.js";
+import { closeAttached, toggleAttached } from "./attached.js";
 
 const NS = "http://www.w3.org/2000/svg";
 
@@ -34,7 +35,8 @@ async function loadDict() {
     if (cat === "meta" || !items || typeof items !== "object") continue;
     for (const [k, v] of Object.entries(items)) {
       if (v && typeof v === "object" && typeof v.label === "string") {
-        map[k] = { label: v.label, desc: v.desc || "" };
+        // offset 仅「开间」类目有：距中轴的间数，供展开规则用（其余词条为 undefined，不影响）
+        map[k] = { label: v.label, desc: v.desc || "", offset: v.offset };
       }
     }
   }
@@ -51,6 +53,7 @@ export function exitGraphView() {
   if (cv) cv.replaceChildren();
   const lg = document.getElementById("graph-legend");
   if (lg) lg.replaceChildren();
+  closeAttached();
   return true;
 }
 
@@ -71,7 +74,7 @@ export async function enterGraphView(graph) {
   const W = Math.max(560, Math.round(box.width || innerWidth));
   const H = Math.max(380, Math.round(box.height || innerHeight));
 
-  const model = buildModel(graph);
+  const model = buildModel(graph, dict);
   const view = createLayout(model, W, H);
 
   const svg = document.createElementNS(NS, "svg");
@@ -155,13 +158,20 @@ export async function enterGraphView(graph) {
       ne.g.setPointerCapture(e.pointerId);
       ne.g.classList.add("is-drag");
       const p = local(e);
+      const ox = e.clientX, oy = e.clientY;
+      let moved = 0;                        // 屏幕像素位移：区分「点击」与「拖拽」
       view.pin(ne.node, p.x, p.y);
-      const mv = (ev) => { const q = local(ev); view.pin(ne.node, q.x, q.y); };
+      const mv = (ev) => {
+        moved = Math.max(moved, Math.hypot(ev.clientX - ox, ev.clientY - oy));
+        const q = local(ev); view.pin(ne.node, q.x, q.y);
+      };
       const up = () => {
         ne.g.removeEventListener("pointermove", mv);
         ne.g.removeEventListener("pointerup", up);
         ne.g.classList.remove("is-drag");
         view.unpin(ne.node);
+        // 几乎没动 = 点击（不是拖拽）：四合院根节点身上挂着三块附属数据 → 展开面板
+        if (moved < 4 && ne.node.cat === "domain") toggleAttached(ne.node, dict);
       };
       ne.g.addEventListener("pointermove", mv);
       ne.g.addEventListener("pointerup", up);
