@@ -1,134 +1,83 @@
 """
-BUILDING.WIKI · MVP 服务（重构版）
-------------------------------------------------
-取代旧 OCCT/STL 链路。新链路：
+BUILDING.WIKI · MVP 2.0 服务（Starlette ASGI）
+================================================
+本容器 = **纯 MCP 引擎出口**（2.0 唯一职责）。
 
-  实例图谱(数据中心)
-      │
-      │  POST /api/command  {text} / {graph} / {graph, tour:true}
-      ▼
-  [① 理解层] text -> LLM 生成实例图谱骨架 -> 装配器补全为自包含 instance（无凭据/非法产物时回落确定性基线）
-      ▼
-  ④ 几何计算引擎（server/engine/geometry.py）
-      │   实例图谱 -> 相对位置清单（米, Y-up）
-      ▼
-  ⑤ 几何造型引擎 BOX 出口
-      │   -> 体素 BOX 清单
-      ▼
-  JSON {action:"model", boxes:[...], graph:{...}}
-  游览（body.tour=true）时额外附 route:[{x,y,z,label,pause,look}]（由图谱+④坐标实时派生，不落盘）
-  响应回传的 graph = 本次场景所依据的实例图谱；前端下次游览原样带回，保证 route 与 BOX 同源。
-  同一张 graph 也是「查看图谱」视图的数据源（前端渲染成节点-边关系图，纯展示、不落盘）。
+  /mcp  -> 官方 mcp SDK Streamable HTTP（stateless）
+            工具：ping / compute_geometry / geometry_to_boxes
 
-  GET /api/dict  -> 命名字典（role -> 中文名/释义），图谱视图据此显示标签，前端不硬编词表。
+为什么只剩 /mcp（2026-09-22 决策：全线 2.0，1.0 下线）
+------------------------------------------------------------
+1.0 时代本应用还承载过四条 HTTP 路由：`/`（Three.js 查看器）、`/static/*`、
+`/api/dict`、`/api/command`（服务端 ① 理解层 LLM + ④⑤ + tour）。2.0 把这些
+职责一分为二后，它们全部失去存在理由：
 
-零依赖（仅 Python 标准库 http.server），可直接 `python server/app.py` 本地跑，
-也可在 CloudBase CloudRun 以 $PORT 启动（已兼容）。
+  - ① 理解层 → 归 OAK Agent（LLM 在 Agent 侧，产出骨架）
+  - ④⑤      → 归本容器，但只经 MCP 暴露给 Agent（不再对浏览器直供）
+  - ⑥ 渲染    → 归独立前端（新起，不再是本容器的 `/` + `/static`）
+
+故摘掉全部 1.0 HTTP 路由，容器只留 /mcp。
+1.0 的实现内容已一并清除（2026-09-22 决策：1.0 内容不再保留）——
+`static/`（查看器与图谱视图）、`engine/understanding.py`（服务端 ① 理解层）、
+`geometry.text_to_instance`（1.0 的 NL 入口）均已删除。
+`mcp_server.py` 只依赖 `engine.geometry`，与理解层无耦合，故该切割不波及 /mcp。
+
+约束与坑（实测）
+------------------------------------------------------------
+- 官方 mcp SDK 2.x：直接 Mount `streamable_http_app()` 的子 Starlette 应用时，其
+  lifespan（session_manager.run）不会被父应用 Mount 触发（Starlette 的 Mount 不跑
+  子应用 lifespan），会报 "Task group is not initialized"。故自建
+  StreamableHTTPSessionManager，由父应用 lifespan 统一调度 run()。
+- stateless=True：无持久长连接，规避 Cloud Run 超时顾虑。
+- json_response=True：单条 JSON 响应（非 SSE 流）。实测 SSE 流在较大响应体
+  （geometry_to_boxes 输出数千体素 BOX、数百 KB）时会提前断流
+  （"SSE stream ended without a response"）；Json 模式规避流式分片。
+- 保留 CORS（allow_origins=["*"]）：浏览器侧客户端（如 MCP Inspector / 新前端）
+  直连 /mcp 时需要；MCP 本身不限制来源，此处不构成额外暴露面。
 """
-import json
 import os
 import sys
-from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse
+from contextlib import asynccontextmanager
+
+from starlette.applications import Starlette
+from starlette.routing import Mount
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from engine.geometry import (  # noqa: E402
-    build_tour_path, compute_geometry, geometry_to_boxes, text_to_instance,
+from mcp_server import mcp  # noqa: E402
+
+session_manager = StreamableHTTPSessionManager(
+    app=mcp._lowlevel_server,
+    stateless=True,
+    json_response=True,
 )
 
-BASE = os.path.dirname(os.path.abspath(__file__))
-STATIC = os.path.join(BASE, "static")
-KNOWLEDGE = os.path.join(BASE, "knowledge")
+
+@asynccontextmanager
+async def lifespan(app):
+    async with session_manager.run():
+        yield
 
 
-class Handler(BaseHTTPRequestHandler):
-    timeout = 15                      # 半开/闲置连接不占死线程（单线程版曾因此卡死）
+routes = [
+    Mount("/mcp", app=session_manager.asgi_app),
+]
 
-    def _send(self, code, body, ctype="application/json; charset=utf-8", extra=None):
-        data = body if isinstance(body, (bytes, bytearray)) else body.encode("utf-8")
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        for k, v in (extra or {}).items():
-            self.send_header(k, v)
-        self.end_headers()
-        self.wfile.write(data)
-
-    def _serve_file(self, fp, ctype):
-        try:
-            with open(fp, "rb") as f:
-                # 本地开发期静态资源禁缓存：避免「代码已改、浏览器仍跑旧版」的假象
-                self._send(200, f.read(), ctype, {"Cache-Control": "no-store, must-revalidate"})
-        except Exception as e:
-            self._send(404, json.dumps({"error": str(e)}, ensure_ascii=False))
-
-    def do_GET(self):
-        p = urlparse(self.path).path
-        if p in ("/", ""):
-            return self._serve_file(os.path.join(STATIC, "index.html"), "text/html; charset=utf-8")
-        if p == "/api/dict":
-            # 命名字典（role -> 中文名/释义）：LLM 的唯一合法词表，也供图谱视图取标签。
-            # 刻意不由前端硬编 —— 词表属图谱模块，随图谱一起演进，两处维护必然漂移。
-            return self._serve_file(os.path.join(KNOWLEDGE, "dict.json"),
-                                    "application/json; charset=utf-8")
-        if p.startswith("/static/"):
-            fp = os.path.normpath(os.path.join(STATIC, p[len("/static/"):]))
-            if fp.startswith(STATIC) and os.path.isfile(fp):
-                if fp.endswith(".js"):
-                    ctype = "application/javascript; charset=utf-8"
-                elif fp.endswith(".css"):
-                    ctype = "text/css; charset=utf-8"
-                elif fp.endswith(".png"):
-                    ctype = "image/png"
-                else:
-                    ctype = "application/octet-stream"
-                return self._serve_file(fp, ctype)
-        self._send(404, json.dumps({"error": "not found"}, ensure_ascii=False))
-
-    def do_POST(self):
-        p = urlparse(self.path).path
-        if p != "/api/command":
-            return self._send(404, json.dumps({"error": "not found"}, ensure_ascii=False))
-        length = int(self.headers.get("Content-Length", 0) or 0)
-        raw = self.rfile.read(length) if length else b"{}"
-        try:
-            body = json.loads(raw.decode("utf-8") or "{}")
-        except Exception:
-            body = {}
-
-        text = body.get("text", "")
-        if "graph" in body:
-            # 显式图谱：上传/粘贴的工程文件，或前端回传的「当前场上场景」图谱
-            inst = body["graph"]
-        else:
-            inst = text_to_instance(text)
-
-        try:
-            geo = compute_geometry(inst)          # ④ 几何计算（构件列表）
-            boxes = geometry_to_boxes(geo)        # ⑤ 造型出口（体素 BOX）
-        except Exception as e:
-            return self._send(200, json.dumps(
-                {"action": "clear", "source": "error", "error": str(e)}, ensure_ascii=False))
-        # 游览意图由前端判定（属 UI 语义），后端只按 tour 标记附路线，不重复维护关键词表。
-        # 响应回传 graph —— 前端把它作为「当前场景」存下，下次游览原样带回，
-        # 保证 route 与场上 BOX 出自同一张图谱（否则「游览」二字会被重新解析成默认进数）。
-        action = "tour" if body.get("tour") else "model"
-        resp = {"action": action, "boxes": boxes, "graph": inst}
-        if action == "tour":
-            # 游览路线 = 由实例图谱 + ④ 实算坐标实时派生（DATA，非文件、非预生成）
-            try:
-                resp["route"] = build_tour_path(inst, geo)
-            except Exception as e:
-                resp["route"] = []
-                resp["routeError"] = str(e)
-        self._send(200, json.dumps(resp, ensure_ascii=False))
-
-    def log_message(self, *a):
-        pass
-
+app = Starlette(
+    routes=routes,
+    lifespan=lifespan,
+    middleware=[Middleware(CORSMiddleware, allow_origins=["*"],
+                           allow_methods=["*"], allow_headers=["*"])],
+)
 
 if __name__ == "__main__":
+    import uvicorn
     port = int(os.environ.get("PORT", 8000))
-    print(f"[BUILDING.WIKI] MVP server on http://0.0.0.0:{port}")
-    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    print(f"[BUILDING.WIKI] MVP 2.0 MCP-only server on http://0.0.0.0:{port} (mcp at /mcp)")
+    # proxy_headers：信任上游代理转发的 X-Forwarded-Proto/Host。Cloud Run 处在
+    # TLS 终止代理之后；若不信任转发头，Starlette 对 "/mcp" 的补斜杠 307 会指向
+    # http://，MCP 客户端因「HTTPS -> HTTP 降级」拒绝跟随。开启后重定向仍为 https。
+    uvicorn.run(app, host="0.0.0.0", port=port,
+                proxy_headers=True, forwarded_allow_ips="*")

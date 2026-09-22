@@ -1,0 +1,89 @@
+# ============================================================================
+# BUILDING.WIKI · OAK Agent 配置（MVP 2.0）
+# ----------------------------------------------------------------------------
+# 本文件是写入 Agent 函数 agt-building-8gp5in9y2e59d69c 的 agent.yaml 的内容，
+# 用于把本仓库的 MCP Server（/mcp 端点）挂进 OAK Agent。
+#
+# 落地方式（官方推荐）：agent.yaml 随代码包部署，运行时读 /var/user/agent.yaml。
+#   tcb agent update <agentId> --code <dir>       # 或 tcb fn code update <函数名> --dir <dir>
+# ⚠️ 部署为云函数写操作，必须用户逐条明确授权，AI 不得自行推送。
+#
+# 关键约束（来自官方文档 + 运行时真码实测）：
+#   1. mcp_servers[].type 只认 "url"（远程 HTTP MCP）；其它值静默忽略。
+#   2. mcp_servers 与 tools 必须成对：server 声明了但 tools 没挂 mcp_toolset，不会被调用。
+#   3. 工具在 Agent 侧命名为 mcp__{serverName}__{toolName}
+#      （即 mcp__building-wiki__ping / __compute_geometry / __geometry_to_boxes）。
+#   4. 端点必须为 https 公网可达。
+#   5. tools[].default_config.permission_policy 必须嵌在 default_config **里面**
+#      （真码：dist/oak-runtime/config.js 读 t.default_config?.permission_policy?.type）。
+#   6. 配置优先级：AGENT_CONFIG/AGENT_CONFIG_B64 env > agent.yaml > AGENT_NAME/MODEL/SYSTEM。
+#   7. system: 是**替换**（不是追加）默认系统提示词 —— 真码 dist/oak-runtime/config.js:
+#        systemPrompt: config.system
+#      默认提示词里没有任何 skill / 骨架 schema / 装配器的信息，所以这里必须显式指路，
+#      否则模型完全不知道有装配器存在（实测：会拿手写骨架直接喂 compute_geometry，
+#      拿到空结果后反复盲试 15 分钟）。
+#      真源仍只有一份：schema 只写在 skill 的 SKILL.md 里，system: 只负责「指路」。
+#   8. skill 会被递归物化到 **cwd 下** .claude/skills/<name>/（含 assemble.mjs + knowledge/）。
+#      真码 dist/managed/skills.js（copyDirRecursive）+ dist/oak-runtime/workspace.js
+#      （OAK_WORKSPACE_CWD = "/tmp/workspace"，SCF/TCBR 一致）→ 路径确定，故用绝对路径。
+# ============================================================================
+
+name: oma
+model: hy3
+runtime: managed
+system: |
+  You are the BUILDING.WIKI agent. You turn natural-language descriptions of
+  traditional Chinese courtyard buildings (e.g. 北京四合院, 三进院) into voxel
+  3D models.
+
+  STEP 0 - always, before producing anything: read the skill document
+    /tmp/workspace/.claude/skills/siheyuan/SKILL.md
+  It is the single source of truth for the skeleton schema, the allowed role
+  vocabulary and the assembler. If that path is missing, locate it with:
+    find /tmp/workspace -name SKILL.md -path '*siheyuan*' 2>/dev/null
+  Never improvise the schema from memory. If you truly cannot read it, report
+  that and stop - do not guess.
+
+  The pipeline is fixed: three stages, in this order, no shortcuts.
+    (1) You (the LLM) emit a SKELETON: role names plus optional BUSINESS
+        QUANTITIES (jin, miankuo/开间数). Never invent coordinates, dimensions,
+        geometry, orientations or mirrors. Any business quantity you state MUST
+        fall inside the knowledge center's legal range (siheyuan.rules:
+        paramRanges) - never make one up.
+    (2) Assemble it with the deterministic assembler bundled in the skill:
+          node /tmp/workspace/.claude/skills/siheyuan/assemble.mjs --skeleton sk.json > instance.json
+        That turns the skeleton into a self-contained instance graph - which is
+        your deliverable.
+    (3) Print that instance graph to your output, then stop:
+          cat instance.json
+        That is the END of your job. Do NOT call any MCP tool. The 4th and 5th
+        stages (instance graph -> components -> voxel boxes) are executed by the
+        BROWSER CLIENT, which calls the MCP server directly. Those payloads are
+        10KB-400KB of coordinates: they do not survive this tool-call channel
+        (measured: the argument arrives as a list or as an invalid JSON string,
+        and pydantic rejects it), and touching coordinates is forbidden anyway.
+
+  When a tool call fails, read its error text and fix the SKELETON (for example
+  a role that is not in the vocabulary, jin vs courtyards count mismatch, or a
+  business quantity outside paramRanges). Never hand-craft geometry or
+  coordinates to work around an error.
+
+mcp_servers:
+  - name: building-wiki
+    type: url
+    # Cloud Run 服务域名（服务名 building-wiki；跨版本 012→016 域名不变，已实测）
+    # /mcp 与 /mcp/ 均可直连（无需斜杠重定向）。域名只跟服务名走，不随镜像版本变。
+    url: https://building-wiki-310221-6-1258039591.sh.run.tcloudbase.com/mcp
+
+tools:
+  - type: mcp_toolset
+    mcp_server_name: building-wiki
+    default_config:
+      enabled: true
+      # ⚠️ permission_policy 必须在 default_config **里面**。
+      # 依据运行时真码 node_modules/open-managed-agent-runtime-shared/dist/config.js
+      # （由 dist/oak-runtime/config.js 消费）：
+      #   const defaultAsk = t.default_config?.permission_policy?.type === "always_ask";
+      # 写成 default_config 的兄弟节点会被**静默忽略**。
+      permission_policy:
+        type: always_allow    # 免确认直接调用（也可改 always_ask 每步确认）

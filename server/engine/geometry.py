@@ -1,20 +1,19 @@
 """
-④ 几何计算引擎 + ⑤ 几何造型引擎(BOX 出口) + ① 合成占位
+④ 几何计算引擎 + ⑤ 几何造型引擎(BOX 出口)
 ------------------------------------------------
 输入 ：实例图谱工程文件（server/data/instances/*.json）
        自包含：data 块为实例数据（拓扑+尺度具体值），appliedRules 为规则快照。
        ④ 只读 instance 整体（data + appliedRules），不碰外部 dict.json / rules.json。
-       ①（text_to_instance / build_instance）读知识中心（type.json + rules.json）合成 instance，
-       属 ① 本职；④ 不读外部知识文件。
+       ① 基线（build_instance）读知识中心（type.json + rules.json）合成 instance，供验证与落库；
+       2.0 在线链路的 ① 归 Agent 侧（LLM 出骨架 → skill 的 assemble 装配），④ 不读外部知识文件。
 输出 ：⑤ 体素 BOX 清单（场景坐标：Y-up，单位米）
        每个 box = {x,y,z, w,h,d, role, label, color}
 
 分层（见 几何计算引擎IO契约.md）：
-- build_instance(jin)        = ① 占位：读 type+rules，按进数合成自包含 instance
-- text_to_instance(text)     = ① 占位：解析 NL 进数 -> build_instance
+- build_instance(jin)        = ① 确定性基线：读 type+rules，按进数合成自包含 instance（供验证/落库）
 - compute_geometry(instance) = ④：instance -> 构件列表（连续几何，绝对坐标，无 color/label）
 - geometry_to_boxes(geo)     = ⑤：构件 -> box 像素网格（选 Box 基元 + 补 label/color）
-- instance_to_boxes(inst)    = 串联 ①->④->⑤（app.py 仅调此）
+- instance_to_boxes(inst)    = 串联 ④->⑤（便捷入口，供本地验证）
 - build_tour_path(inst, geo) = ④ 布局 + 实际构件 -> 游览路线 DATA（纯展示层派生，实时生成，不回灌 ④/⑤）
 
 设计铁律（见 架构设计总览.md §7/§9/§14、几何计算引擎IO契约.md）：
@@ -92,27 +91,6 @@ ROLE_COLORS = {
     "zhaimen": 0x8B4513, "taiji": 0x9E9284,
 }
 
-_CN_NUM = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
-           "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
-# 正则字符类由上面这张表生成：表里加字（如「两」）正则自动跟上，
-# 不再出现「表里有 两→2、正则字符类却认不出 两」的两处漂移。
-_CJK_NUM = "".join(_CN_NUM)
-
-
-# ---------------- ① 合成占位：NL -> 自包含 instance ----------------
-def _parse_jin(text):
-    """从 NL 文本解析进数；未识别默认 3。"""
-    if not text:
-        return 3
-    m = re.search(r'([' + _CJK_NUM + r'\d])\s*进', text)
-    if not m:
-        return 3
-    tok = m.group(1)
-    if tok.isdigit():
-        return max(1, min(int(tok), 10))
-    return _CN_NUM.get(tok, 3)
-
-
 def _room(role, norms, type_doc=None):
     """一栋建筑的声明：role + 尺度 + 该栋自身的属性（等级 / 材质 / 高度 / 台明）。
 
@@ -135,13 +113,6 @@ def _room(role, norms, type_doc=None):
     for k in ("level", "material"):
         if t.get(k) is not None:
             r[k] = t[k]
-    return r
-
-
-def _south_with_gate(norms, type_doc=None):
-    """最外院(sequence==1)倒座房：附大门(zhaimen)，使 ④ 渲染东南角宅门。"""
-    r = _room("daozuofang", norms, type_doc)
-    r["gate"] = {"role": "zhaimen"}
     return r
 
 
@@ -371,53 +342,69 @@ def _court_namer(rules_doc, dict_doc):
     return court_name
 
 
-def _plan_by_jin(jin, norms, type_doc, court_name):
-    """① 确定性生成器：按进数合成 courtyards（数值由 _room 查表落定，本函数不做推理）。
+def _plan_by_jin(jin, norms, type_doc, court_name, rules_doc):
+    """① 确定性生成器：按进数合成 courtyards。
 
-    它同时是 LLM 提示词里 few-shot 示例的唯一来源——把本函数输出反向压缩成骨架
-    （见 understanding.skeleton_of），示例与真实装配器同源，永不漂移。
+    角色与四至**一律取自 rules.occupancy（院落四至默认构成）**——本函数不含任何角色硬编，
+    只做「读表 → 查 norms / 类型图谱补数值 → 交给 _finish」。规则改则生成随之改，不可能两处漂移。
+
+    它同时是确定性基线（build_instance）的生成段，供验证与落库使用。
+
+    其他已知点（原散在本函数的注释，现归位）：
+      - 游廊暂不生成：抄手游廊是内院环形通道的细部做法，留待「加细节」阶段单独讨论其形制与归属
+        （类型图谱 peripheral.youlang 亦标【当前不启用】）。
+      - 后门（houmen）是**条件性**构件，不属「每进默认构成」——仅当用户明确提到「宅后临街 / 开后门」
+        才在图谱里加，见 siheyuan.rules:position.houmen（用户 2026-09-20 定：默认不设）。
+      - 穿堂是正房的一种**做法**（明间南北贯通），随正房归属本院，**不是门**（故图谱记 ring.nan.thru，不记 gate）。
     """
+    occ_rules = ((rules_doc.get("occupancy") or {}).get("rules")) or []
+    if not occ_rules:
+        raise ValueError("图谱缺陷：siheyuan.rules 缺少 occupancy.rules"
+                         "（院落四至默认构成 —— 每进哪一侧放什么角色的唯一事实源）")
+
+    def _occupancy_of(k):
+        """第 k 进的四至规则：按序求值、首个命中者胜出（与 sequence.naming 同律）。"""
+        for r in occ_rules:
+            at = r.get("at")
+            if at == "middle":
+                if not (1 < k < jin):
+                    continue
+            elif at == "last":
+                if k != jin:
+                    continue
+            elif at != k:
+                continue
+            if "jinEq" in r and jin != r["jinEq"]:
+                continue
+            if "jinGte" in r and jin < r["jinGte"]:
+                continue
+            if "jinLte" in r and jin > r["jinLte"]:
+                continue
+            return r
+        raise ValueError("图谱缺陷：第 %d 进（共 %d 进）在 rules.occupancy 无规则命中" % (k, jin))
+
     courtyards = []
-    if jin <= 1:
-        # 一进：无垂花门、无内外之分，此院既是入口院也是主院。影壁正对宅门 → 归此院。
-        # 游廊暂不生成：抄手游廊是内院环形通道的细部做法，留待「加细节」阶段单独讨论其形制与归属。
-        courtyards.append(_cy(1, court_name(1, jin),
-            bei=_room("zhengfang", norms, type_doc), nan=_south_with_gate(norms, type_doc),
-            dong=_room("xiangfang", norms, type_doc), xi=_room("xiangfang", norms, type_doc),
-            peripheral=[{"role": "yingbi"}], perimeter=True))
-    elif jin == 2:
-        # 影壁正对宅门 → 归首院（外院）。游廊暂不生成（见上）。
-        courtyards.append(_cy(1, court_name(1, jin), nan=_south_with_gate(norms, type_doc),
-                              beimen={"role": "chuihuamen"},
-                              peripheral=[{"role": "yingbi"}], perimeter=True))
-        courtyards.append(_cy(2, court_name(2, jin), bei=_room("zhengfang", norms, type_doc),
-            dong=_room("xiangfang", norms, type_doc), xi=_room("xiangfang", norms, type_doc),
-            peripheral=None, perimeter=True))
-    else:
-        # jin >= 3：仅一进→二进设垂花门；其余院际边界**不设独立门楼** —— 由本进正房明间
-        #           做穿堂（南北贯通）连通下一进。穿堂是正房的一种做法，随正房归属本院，
-        #           **不是门**（故图谱记 ring.nan.thru，不记 gate）。末进为后罩院。
-        # 影壁归首院（正对宅门）。游廊暂不生成（见上）。
-        courtyards.append(_cy(1, court_name(1, jin), nan=_south_with_gate(norms, type_doc),
-                              beimen={"role": "chuihuamen"},
-                              peripheral=[{"role": "yingbi"}], perimeter=True))
-        for k in range(2, jin):
-            # 中间进：正房明间(中央开间)为穿堂，南北开门连通下一进；其余院落边界不设垂花门。
-            #         穿堂是这座正房的做法 → 归属本院，不立门实体（见 _geo_zhengfang_chuantang）。
-            zf = _room("zhengfang", norms, type_doc)
-            zf["chuantang"] = True
-            peripheral = None
-            courtyards.append(_cy(k, court_name(k, jin),
-                bei=zf, dong=_room("xiangfang", norms, type_doc),
-                xi=_room("xiangfang", norms, type_doc), peripheral=peripheral, perimeter=True))
-        # 后门（houmen）：后罩房西端一间改门道、通北胡同，与宅门「一间改门道」同法、东西相对。
-        # 规制（siheyuan.rules:position.houmen）：**条件性**——仅当宅后临街才设。
-        # 用户 2026-09-20 定：用户未提临街时**默认不设**（防御性：后罩房后檐墙通常不开门窗）。
-        # 后罩房只出现在 jin>=3 的末进，故一/二进自然无后门，不需另加开关。
-        courtyards.append(_cy(jin, court_name(jin, jin),
-            bei=_room("houzhaofang", norms, type_doc),
-            dong=_room("xiangfang", norms, type_doc),
-            xi=_room("xiangfang", norms, type_doc), perimeter=True))
+    for k in range(1, jin + 1):
+        rule = _occupancy_of(k)
+        sides = rule.get("sides") or {}
+        kwargs = {}
+        for side in ("bei", "nan", "dong", "xi"):
+            spec = sides.get(side)
+            if not spec:
+                continue              # 该侧无建筑：院墙环自动补独立院墙（yuanqiang）
+            room = _room(spec["role"], norms, type_doc)
+            for dk in _ROOM_DECL_KEYS:   # gate / chuantang —— 骨架允许的建筑级声明，原样合上
+                if dk in spec:
+                    room[dk] = spec[dk]
+            kwargs[side] = room
+        beimen = rule.get("beimen")
+        peripheral = rule.get("peripheral") or []
+        courtyards.append(_cy(
+            k, court_name(k, jin),
+            beimen={"role": beimen["role"]} if beimen else None,
+            peripheral=[{"role": p["role"]} for p in peripheral] if peripheral else None,
+            perimeter=bool(rule.get("perimeter")),
+            **kwargs))
     return courtyards
 
 
@@ -534,19 +521,22 @@ def build_instance(jin, omit=None):
     rules_doc, type_doc, dict_doc = _load_knowledge()
     norms = rules_doc.get("norms", {})
     court_name = _court_namer(rules_doc, dict_doc)
-    return _finish(jin, _plan_by_jin(jin, norms, type_doc, court_name),
+    return _finish(jin, _plan_by_jin(jin, norms, type_doc, court_name, rules_doc),
                    rules_doc, dict_doc, omit=omit)
 
 
-# 骨架里允许出现的「建筑级声明」字段：只有声明性的（门 / 穿堂），绝不含数值。
-_ROOM_DECL_KEYS = ("gate", "chuantang")
+# 骨架里允许出现的「建筑级声明」字段：声明性的（门 / 穿堂）+ 业务量（面阔…）。
+# 业务量的**值域**由 rules.paramRanges 约束（校验在 Agent 侧 skill 的装配器 validatePlan 里），
+# 本常量只管「可声明」。
+_ROOM_DECL_KEYS = ("gate", "chuantang", "miankuo")
 
 
 def _expand_room(spec, norms, type_doc):
     """骨架里的建筑声明 -> 完整建筑：role 查表补全尺度/等级/材质，声明字段原样合上。
 
-    LLM 只写 role（+ 门/穿堂声明），不写数字——数值由本函数从知识中心查表补，
-    数字若出现在 LLM 输出里就是幻觉源（§13.4 #1「确定性活不给 LLM」）。
+    LLM 只写 role（+ 门/穿堂等声明），尺度数值由本函数从知识中心查表补；
+    唯一例外是**业务量**（如 miankuo 面阔）——可由骨架声明，但取值须落在
+    rules.paramRanges 声明的值域内（红线只禁坐标/几何量，不禁业务量；§13.4 #1）。
     """
     if not isinstance(spec, dict) or not spec.get("role"):
         raise ValueError("图谱缺陷：骨架中的建筑声明缺 role：%r" % (spec,))
@@ -569,7 +559,8 @@ def assemble_instance(plan):
           "peripheral": [{"role": "yingbi"}], "perimeter": true},
          ...]}
 
-    - 数值（面阔/进深/高/台明/等级/材质）全部由 _expand_room 查知识中心补，骨架里没有。
+    - 尺度数值（面阔/进深/高/台明/等级/材质）由 _expand_room 查知识中心补；
+      业务量可在骨架声明（值域受 rules.paramRanges 约束）。
     - 院名不取自骨架，由 sequence.naming 规则推导（命名权归图谱，不归 LLM）。
     - 收尾与 build_instance 共用 _finish，故形状必然一致（零漂移）。
     """
@@ -609,20 +600,6 @@ def assemble_instance(plan):
         courtyards.append(c)
 
     return _finish(jin, courtyards, rules_doc, dict_doc)
-
-
-def text_to_instance(text):
-    """① 理解层：NL -> 自包含 instance。
-
-    首选 LLM 原生生成（理解层产物 = 实例图谱骨架，见 engine/understanding.py）；
-    无凭据 / 调用失败 / 校验不过 -> 回落确定性基线 build_instance，链路永不中断。
-    回落不是"外挂兜底翻译"——它与 LLM 路径是同一契约的两种实现，共用装配段，产物同形。
-    """
-    try:
-        from engine.understanding import understand
-        return assemble_instance(understand(text))
-    except Exception:
-        return build_instance(_parse_jin(text))
 
 
 # ---------------- ④ 几何计算：instance -> 构件列表（连续几何, 绝对坐标, 米, Y-up） ----------------
@@ -680,15 +657,44 @@ def _layout(instance):
     return plotted, norms, modus
 
 
+def _graph_data(instance, fn):
+    """形状闸：取出实例图谱的 data 块，并确认它确实带 courtyards；缺则报图谱缺陷。
+
+    为什么必须有这道闸（本地实测复现）：courtyards 缺失/为空时 compute_geometry 原本
+    **静默返回 []**，调用方（LLM）会把它读成「成功但空」，于是换个写法继续试——
+    实测盲试十余分钟才放弃。缺字段一律报错是本项目既有约定（见 _norms_get 注释），
+    这里补上同一约定，让错误在出口暴露。
+
+    另：形状闸必须排在 _layout **之前**。原先 {} 会先撞上「appliedRules.norms.modus
+    缺失」，而该报错会把模型引向**编一个模数数字**（实测它随即加了 modus:0.1），
+    反而绕开了真正的病根——「你喂进来的是骨架，不是装配后的图谱」。先判 courtyards
+    才指得准方向。
+    """
+    if not isinstance(instance, dict):
+        raise ValueError("图谱缺陷：%s 的 instance 须为对象（实例图谱），收到 %s"
+                         % (fn, type(instance).__name__))
+    data = instance.get("data", instance)
+    if not isinstance(data, dict):
+        raise ValueError("图谱缺陷：%s 的 instance.data 须为对象，收到 %s"
+                         % (fn, type(data).__name__))
+    courtyards = data.get("courtyards")
+    if not isinstance(courtyards, list) or not courtyards:
+        raise ValueError(
+            "图谱缺陷：%s 的 data.courtyards 缺失或为空 —— 入参须是**装配后的自包含实例"
+            "图谱**（meta/data/appliedRules，建筑声明带数值），不是只写了 role 的骨架；"
+            "骨架请先经装配器（assemble.mjs / assemble_instance）补全数值再调用" % fn)
+    return data
+
+
 def compute_geometry(instance):
     """④ 几何计算：instance -> 构件列表。每个构件 = {role, center:{x,y,z}, size:{w,h,d}}。
 
     - 只读 instance（data + appliedRules），不硬编码任何规制数字。
     - 输出是构件（连续几何），不是 box、不是空间。庭院虚空不输出。
+    - 算不出任何构件即报图谱缺陷 —— **绝不静默返回 []**（见 _graph_data 的 why）。
     """
+    _graph_data(instance, "compute_geometry")
     plotted, norms, modus = _layout(instance)
-    if not plotted:
-        return []
     geometry = []
     for idx, p in enumerate(plotted):
         zc = p["zc"]
@@ -749,7 +755,14 @@ def compute_geometry(instance):
             geometry.extend(_geo_wall_ring(p["c"], w, zc, d, norms, draw_south=(idx == 0)))
 
     # 边界去重：同一条墙线上建筑墙优先于独立院墙(yuanqiang)，被覆盖的院墙段按区间相减掉。
-    return _resolve_boundary(geometry, norms)
+    resolved = _resolve_boundary(geometry, norms)
+    # 兜底闸：形状闸只认得住「有没有 courtyards」，认不住「courtyards 里全是空壳」。
+    # 算不出构件一律报错，保持「绝不静默返回 []」这条不变式对整个函数成立。
+    if not resolved:
+        raise ValueError(
+            "图谱缺陷：compute_geometry 算不出任何构件 —— 各院 enclosure 为空且无院墙，"
+            "或构件全部被边界去重消掉；图谱结构不完整")
+    return resolved
 
 
 def _glance(px, pz, heading, deg, dist):
@@ -1360,10 +1373,26 @@ def geometry_to_boxes(geometry, vox=VOXEL_SIZE):
     label 取自命名字典（此处一次取表、逐构件复用），color 由所属构件继承。
     未来切 B-rep 只改此处，④ 不动。
     """
+    # 入参形状闸 + 出口兜底闸：同 compute_geometry，保持「绝不静默返回 []」这条不变式。
+    # 实测静默路径有三个：[]（空清单）、{}（字典被当可迭代空转）、
+    # [{"role":"zhengfang"}]（构件缺 size → _voxelize_component 对零尺寸构件返回 []）。
+    # 零尺寸构件本身返回空是对的（它没有体积），但**整份算不出体素**必是入参缺陷。
+    if not isinstance(geometry, list):
+        raise ValueError("图谱缺陷：geometry_to_boxes 的入参须是 compute_geometry 输出的"
+                         "构件清单（list），收到 %s" % type(geometry).__name__)
+    if not geometry:
+        raise ValueError("图谱缺陷：geometry_to_boxes 入参为空 —— 须先成功调用 "
+                         "compute_geometry 拿到构件清单，再调本工具")
+    if not all(isinstance(g, dict) for g in geometry):
+        raise ValueError("图谱缺陷：geometry 清单里含非对象项（构件须是对象）")
     labels = _dict_labels()
     boxes = []
     for g in geometry:
         boxes.extend(_voxelize_component(g, vox, labels))
+    if not boxes:
+        raise ValueError(
+            "图谱缺陷：构件清单非空却算不出任何体素 —— 构件缺 center/size（零尺寸构件"
+            "不产生体素），通常说明该清单不是 compute_geometry 的产出")
     return boxes
 
 

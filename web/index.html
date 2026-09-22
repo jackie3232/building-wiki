@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BUILDING.WIKI · 图谱驱动的古建体素生成</title>
+<link rel="stylesheet" href="./style.css">
+<script type="importmap">
+{"imports":{
+  "three":"./vendor/three.module.min.js",
+  "three/addons/controls/OrbitControls.js":"./vendor/OrbitControls.js"
+}}
+</script>
+</head>
+<body>
+<div id="scene-container"></div>
+
+<div id="hud-top">
+  <span class="logo">BUILDING.WIKI</span>
+  <span class="dot">·</span>
+  <span class="sub">图谱驱动 · 古建体素</span>
+</div>
+
+<div id="hud-status" class="hidden"></div>
+
+<aside id="chat-panel">
+  <header id="chat-head">
+    <span class="chat-title">Agent</span>
+    <button id="btn-chat-toggle" type="button" aria-label="收起/展开">收起</button>
+  </header>
+  <div id="chat-body"></div>
+</aside>
+
+<div id="hud-bottom">
+  <div id="input-wrap">
+    <input id="cmd-input" type="text"
+           placeholder="描述你想建的院落 · 例如：三进四合院，正房七间"
+           autocomplete="off" spellcheck="false" />
+    <button id="cmd-send" aria-label="发送">&#8593;</button>
+  </div>
+  <div id="hint">回车发送 · Agent 推导骨架 → 引擎算几何 → 前端出体素</div>
+</div>
+
+<button id="btn-clear" title="清空场景">清空</button>
+
+<!-- key 走 config.local.js（已 gitignore）；缺失时不报错，由 config.js 兜底 -->
+<script src="./config.local.js" onerror="void 0"></script>
+<script src="./config.js"></script>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

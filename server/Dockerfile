@@ -5,15 +5,16 @@
 #  两阶段构建。MVP 选定 ⑤ 走 Box 体素提速版（Python 重写），不再依赖
 #  C++/OCCT/CGAL，故整条链路为纯 Python 标准库，零编译、零原生依赖。
 #
-#  管线：NL → ①(text_to_instance) → instance(工程文件)
-#            → ④(geometry 纯几何) → ⑤(box 体素) → ⑥(前端 Three.js 渲染)
+#  管线（2.0）：Agent（LLM 出骨架 → skill 装配实例图谱）
+#            → MCP compute_geometry(④) → geometry_to_boxes(⑤)
+#            → 客户端渲染（前端独立部署，不在本容器内）
 #
 #  路径约定（与 engine/geometry.py 的 BASE 解析一致）：
-#    app.py              → /app/app.py
+#    app.py              → /app/app.py         (纯 MCP 宿主)
+#    mcp_server.py       → /app/mcp_server.py  (ping / compute_geometry / geometry_to_boxes)
 #    engine/             → /app/engine/        (④⑤ 计算引擎，纯 Python)
-#    knowledge/          → /app/knowledge/     (type.json + rules，① 合成用)
+#    knowledge/          → /app/knowledge/     (dict/type/rules；⑤ label 与 ① 基线用)
 #    data/               → /app/data/          (instances 实例工程文件)
-#    static/             → /app/static/        (前端页面 + Three.js)
 # ===========================================================================
 
 FROM python:3.11-slim-bookworm
@@ -24,12 +25,15 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-# 零依赖：仅 Python 标准库 http.server，无需 pip 安装任何包
+# MVP 2.0：引入官方 mcp SDK（ASGI），需装依赖
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
 COPY app.py .
+COPY mcp_server.py .
 COPY engine ./engine
 COPY knowledge ./knowledge
 COPY data ./data
-COPY static ./static
 
 EXPOSE 80
 CMD ["python", "app.py"]

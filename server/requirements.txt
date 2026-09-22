@@ -1,2 +1,6 @@
-flask
-requests
+# MVP 2.0：OAK Agent 通过 HTTP MCP 调用 ④⑤ 引擎
+# 官方 mcp SDK（Python）为 ASGI（starlette + uvicorn），容器运行时由
+# 标准库 http.server 切换为 Starlette + uvicorn。
+mcp==2.2.0
+uvicorn>=0.30.0
+starlette>=0.37.0

@@ -361,5 +361,9 @@
         "desc": "墙厚"
       }
     }
+  },
+  "__generated__": {
+    "source": "server/knowledge/siheyuan.type.json",
+    "note": "生成物，勿手改；改动请改源后重跑 _sync_knowledge.py"
   }
 }

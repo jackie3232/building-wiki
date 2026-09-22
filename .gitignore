@@ -32,3 +32,9 @@ server/*.log
 
 # WorkBuddy 应用描述文件（本地工具产物，不入库）
 .wbapp_*.genie
+
+# 前端本地密钥（不入库；模板见 web/config.example.js）
+web/config.local.js
+
+# Node 依赖目录（不入库；云函数部署由平台 Auto install dependencies 安装）
+node_modules/

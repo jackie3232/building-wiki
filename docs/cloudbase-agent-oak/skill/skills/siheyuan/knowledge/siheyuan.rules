@@ -262,12 +262,27 @@
         "at": 1,
         "jinEq": 1,
         "sides": {
-          "bei": {"role": "zhengfang"},
-          "nan": {"role": "daozuofang", "gate": {"role": "zhaimen"}},
-          "dong": {"role": "xiangfang"},
-          "xi": {"role": "xiangfang"}
+          "bei": {
+            "role": "zhengfang"
+          },
+          "nan": {
+            "role": "daozuofang",
+            "gate": {
+              "role": "zhaimen"
+            }
+          },
+          "dong": {
+            "role": "xiangfang"
+          },
+          "xi": {
+            "role": "xiangfang"
+          }
         },
-        "peripheral": [{"role": "yingbi"}],
+        "peripheral": [
+          {
+            "role": "yingbi"
+          }
+        ],
         "perimeter": true,
         "why": "一进院：无垂花门即无内外之分，此院既是入口院也是主院 → 正房 + 倒座房（含宅门）+ 东西厢房俱全；影壁正对宅门，归此院。"
       },
@@ -276,10 +291,21 @@
         "at": 1,
         "jinGte": 2,
         "sides": {
-          "nan": {"role": "daozuofang", "gate": {"role": "zhaimen"}}
+          "nan": {
+            "role": "daozuofang",
+            "gate": {
+              "role": "zhaimen"
+            }
+          }
         },
-        "beimen": {"role": "chuihuamen"},
-        "peripheral": [{"role": "yingbi"}],
+        "beimen": {
+          "role": "chuihuamen"
+        },
+        "peripheral": [
+          {
+            "role": "yingbi"
+          }
+        ],
         "perimeter": true,
         "why": "外院（首进）：仅倒座房（含宅门），北界卡子墙正中开垂花门；**不设东西厢房**（用户 2026-09-22 定：外院不需要，其余进都需要）。影壁归首院。"
       },
@@ -287,9 +313,16 @@
         "id": "neiyuan",
         "at": "middle",
         "sides": {
-          "bei": {"role": "zhengfang", "chuantang": true},
-          "dong": {"role": "xiangfang"},
-          "xi": {"role": "xiangfang"}
+          "bei": {
+            "role": "zhengfang",
+            "chuantang": true
+          },
+          "dong": {
+            "role": "xiangfang"
+          },
+          "xi": {
+            "role": "xiangfang"
+          }
         },
         "perimeter": true,
         "why": "中间进（内院 / 厅房院）：正房明间做穿堂南北贯通，连通下一进；东西厢房对称；院际不设独立门楼（故无垂花门、无 beimen）。"
@@ -299,9 +332,15 @@
         "at": "last",
         "jinEq": 2,
         "sides": {
-          "bei": {"role": "zhengfang"},
-          "dong": {"role": "xiangfang"},
-          "xi": {"role": "xiangfang"}
+          "bei": {
+            "role": "zhengfang"
+          },
+          "dong": {
+            "role": "xiangfang"
+          },
+          "xi": {
+            "role": "xiangfang"
+          }
         },
         "perimeter": true,
         "why": "二进末进即主院（内院）：正房 + 东西厢房；其后无院，故正房不做穿堂。"
@@ -311,9 +350,15 @@
         "at": "last",
         "jinGte": 3,
         "sides": {
-          "bei": {"role": "houzhaofang"},
-          "dong": {"role": "xiangfang"},
-          "xi": {"role": "xiangfang"}
+          "bei": {
+            "role": "houzhaofang"
+          },
+          "dong": {
+            "role": "xiangfang"
+          },
+          "xi": {
+            "role": "xiangfang"
+          }
         },
         "perimeter": true,
         "why": "三进及以上末进为后罩院：后罩房 + 东西厢房（用户 2026-09-22 定：除首进外每进都有东西厢房）；末进无穿堂。"
@@ -437,11 +482,19 @@
     "taxonomy": {
       "围墙": {
         "desc": "围合院落、不属任何单栋房屋；基线状态即完整院墙环（外圈外围院墙 + 各进内隔墙）。",
-        "kinds": ["weiqiang", "kaziqiang", "buqiang", "youlang", "yingbi"]
+        "kinds": [
+          "weiqiang",
+          "kaziqiang",
+          "buqiang",
+          "youlang",
+          "yingbi"
+        ]
       },
       "建筑用墙(非围墙)": {
         "desc": "围合房间、属房屋结构；其贴边界段（后檐墙）兼作院墙、分段替换基线围墙对应段。",
-        "kinds": ["houyanqiang"]
+        "kinds": [
+          "houyanqiang"
+        ]
       }
     },
     "desc": "无建筑时每院仅有完整院墙环（外圈外围院墙 + 各进内隔墙，纯围墙基线）；叠加建筑后，其贴边界的后檐墙分段实现（替换）对应围墙段。坐标零，由几何层实例化。",
@@ -494,5 +547,9 @@
       ],
       "desc": "每院四侧先有墙基底（纯围墙基线）；provider=建筑时该侧由建筑后檐墙分段实现(替换，不另画独立墙)；provider=null时画独立院墙(yuanqiang)，与相邻建筑后檐墙共线；门(gate)在段上开缺"
     }
+  },
+  "__generated__": {
+    "source": "server/knowledge/siheyuan.rules",
+    "note": "生成物，勿手改；改动请改源后重跑 _sync_knowledge.py"
   }
 }
