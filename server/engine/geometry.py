@@ -602,6 +602,43 @@ def assemble_instance(plan):
     return _finish(jin, courtyards, rules_doc, dict_doc)
 
 
+def skeleton_of(courtyards):
+    """装配态 courtyards -> 声明式骨架（剥离全部数值）—— assemble_instance 的逆。
+
+    用途：① 闭合性自测（骨架 -> assemble_instance 应逐字节还原）；
+          ② 与 Agent 侧 JS 装配器（skill 内 assemble.mjs）做零漂移比对
+             （见 docs/cloudbase-agent-oak/_verify_port.py）。
+
+    与 assemble_instance 互逆，故与它同处一模块，并**共用 _ROOM_DECL_KEYS**：
+    骨架允许的声明字段只保留一处真源（此前 understanding.py 另立 _DECL_KEYS，
+    漏了 miankuo，构成"同一事实两处表达"）。
+    """
+    out = []
+    for c in courtyards:
+        enc_in = c.get("enclosure") or {}
+        enc = {"relation": enc_in.get("relation") or "weihe"}
+        for side in ("bei", "nan", "dong", "xi"):
+            r = enc_in.get(side)
+            if isinstance(r, dict) and r.get("role"):
+                spec = {"role": r["role"]}
+                for k in _ROOM_DECL_KEYS:
+                    if k in r:
+                        spec[k] = r[k]
+                enc[side] = spec
+        for k in ("beimen", "nanmen"):
+            r = enc_in.get(k)
+            if isinstance(r, dict) and r.get("role"):
+                enc[k] = {"role": r["role"]}
+        spec = {"sequence": c.get("sequence"), "enclosure": enc}
+        if c.get("perimeter"):
+            spec["perimeter"] = True
+        if c.get("peripheral"):
+            spec["peripheral"] = [{"role": p["role"]} for p in c["peripheral"]
+                                  if isinstance(p, dict) and p.get("role")]
+        out.append(spec)
+    return {"jin": len(courtyards), "courtyards": out}
+
+
 # ---------------- ④ 几何计算：instance -> 构件列表（连续几何, 绝对坐标, 米, Y-up） ----------------
 def _dim(role_obj, key, default):
     return (role_obj or {}).get(key, default)

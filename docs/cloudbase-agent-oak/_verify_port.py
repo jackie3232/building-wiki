@@ -22,8 +22,7 @@ if len(sys.argv) > 1 and not sys.argv[1].startswith("-"):
 NODE = r"C:\Users\jackie\.workbuddy\binaries\node\versions\22.22.2-3\node.exe"
 
 sys.path.insert(0, SERVER)
-from engine.geometry import build_instance, assemble_instance  # noqa: E402
-from engine.understanding import skeleton_of  # noqa: E402
+from engine.geometry import build_instance, assemble_instance, skeleton_of  # noqa: E402
 
 
 def normalize(o, path=""):
