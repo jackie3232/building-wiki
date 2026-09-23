@@ -13,6 +13,9 @@ BUILDING.WIKI · MCP 工具层（MVP 2.0）
   - ping                 ：连通性冒烟测试
   - compute_geometry     ：④ 实例图谱 -> 构件清单（连续几何/绝对坐标/米/Y-up）
   - geometry_to_boxes    ：⑤ 构件清单 -> 体素 BOX 清单
+  - generate_building    ：④⑤ 一体化（by-reference）。入参只传实例图谱引用
+                          （cos:<key> 或本地路径），内部读实例 -> 跑 ④⑤ ->
+                          返回体素 BOX 清单 JSON。让 OAK Agent 成为整条链路总控。
 
 自然语言 <-> 实例图谱的推导在 Agent/理解层完成；数字与坐标全在引擎内算。
 
@@ -28,6 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from engine.geometry import compute_geometry, geometry_to_boxes
+from storage import read_instance, write_json, presign_url, new_object_key
 
 # MCPServer name = agent.yaml 里 mcp_servers[].name（须一致）
 mcp = MCPServer(name="building-wiki")
@@ -76,5 +80,42 @@ def geometry_to_boxes_tool(geometry: list[dict]) -> str:
     # `Error executing tool geometry_to_boxes`。
     try:
         return json.dumps(geometry_to_boxes(geometry), ensure_ascii=False)
+    except Exception as e:
+        raise ToolError("%s: %s" % (type(e).__name__, e)) from e
+
+
+@mcp.tool(name="generate_building")
+def generate_building_tool(instance_ref: str) -> str:
+    """④⑤ 一体化（by-reference）：实例图谱引用 -> 体素 BOX 清单。
+
+    把原先前端分两步直连的 compute_geometry + geometry_to_boxes 合并为
+    Agent 侧的一次工具调用，使 OAK Agent 成为整条链路的总控
+    （架构决策 2026-09-22：全 Agent 形态，自动化段打包为单个 MCP 调用）。
+
+    入参只传「引用」而非「值」：实例图谱 ~10KB 若走工具入参通道会被 harness
+    截断损坏，故 Agent 先把实例写到云存储（cos:<key>），本工具按引用读取。
+
+    Args:
+        instance_ref: 实例图谱引用。生产为 cos:<objectKey>
+                      （Agent 写入云存储的键，如 cos:instances/<uuid>.json）；
+                      本地调试可为磁盘文件路径。解析见 storage.read_instance。
+    Returns:
+        默认（by-reference，与入参对称）：体素 BOX 清单写入云存储，返回一个
+        可公网 GET 的预签名 URL 字符串。前端/调用方按 URL 直接 fetch 取体素，
+        绕开 harness 对大输出（~0.5–1MB）的持久化/截断。
+        设 BW_BOXES_INLINE=1 时改为内联体素 JSON 字符串（本地调试用）。
+    """
+    # 与另两个工具一致：包 ToolError，保留「图谱缺陷：…」诊断原文透传到模型；
+    # 引用解析失败（缺凭据 / 键不存在 / JSON 损坏）也一并透传。
+    try:
+        instance = read_instance(instance_ref)
+        geometry = compute_geometry(instance)
+        boxes = geometry_to_boxes(geometry)
+        if os.environ.get("BW_BOXES_INLINE") == "1":
+            return json.dumps(boxes, ensure_ascii=False)
+        # 出参走引用：写云存储，只回传可取路径（预签名 URL），与入参 cos: 引用对称。
+        key = new_object_key("oak-workspaces/boxes")
+        write_json(key, boxes)
+        return presign_url(key, expires=3600)
     except Exception as e:
         raise ToolError("%s: %s" % (type(e).__name__, e)) from e

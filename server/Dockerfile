@@ -31,6 +31,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py .
 COPY mcp_server.py .
+COPY storage.py .
 COPY engine ./engine
 COPY knowledge ./knowledge
 COPY data ./data

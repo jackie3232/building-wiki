@@ -4,3 +4,6 @@
 mcp==2.2.0
 uvicorn>=0.30.0
 starlette>=0.37.0
+# by-reference 入参：从云存储（COS）按 key 读取实例图谱，绕开 harness 10KB 入参上限。
+# 延迟导入（storage.py 内），本地联调无凭据/无 SDK 也能跑本地路径分支。
+cos-python-sdk-v5>=1.9.0
