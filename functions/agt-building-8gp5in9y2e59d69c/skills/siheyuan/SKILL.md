@@ -14,12 +14,15 @@ description: 把用户对北京四合院的自然语言需求，转成「实例�
    │        ↓
    ├─ assemble.mjs（确定性查表装配）：骨架 → 自包含实例图谱
    │        ↓
-   └─ 你把 instance.json 打印出来（cat）—— 到这一步你就收工
-            ↓
-      前端接手：直连 MCP 跑 compute_geometry（图谱→构件）→ geometry_to_boxes（构件→体素）
+   ├─ upload_instance.mjs：实例 → cos:instances/<uuid>.json（上传云存储）
+   │        ↓
+   └─ 你调用 MCP 工具 generate_building(instance_ref="cos:<key>")
+            → ④⑤ 一体化：图谱 → 构件 → 体素 BOX → 返回 boxes
 ```
 
-**你负责智能化（理解 + 出骨架）与装配调用；④⑤ 全由前端直连 MCP 做，不经你手。**
+**你是整条链路的总控（全 Agent 形态，2026-09-22 架构决策）：理解 + 装配 + 上传 +
+调用 `generate_building` 全由你完成；前端只负责拿结果渲染。**
+**红线不变：你依旧不碰坐标 / 几何量**——④⑤ 的计算在 MCP 侧，你只传「引用」、收「结果」。
 
 ## 硬约束（违反即作废）
 
@@ -90,19 +93,34 @@ node .claude/skills/siheyuan/assemble.mjs --skeleton sk.json > instance.json
 输出 = **自包含实例图谱**（`meta` / `data` / `appliedRules` / `appliedDict`）。
 它自带本次用到的规则与字典，**下游不再需要知识中心**。
 
-## 怎么出模型
+## 怎么出模型（全 Agent 形态）
 
-装配出实例图谱后，**把 `instance.json` 的完整内容打印到输出里**：
+装配出实例图谱后，**不要**把它打印出来——改为上传云存储，再让 MCP 在你这一侧把
+④⑤ 跑完：
 
 ```bash
-cat instance.json
+# 1) 装配（--knowledge 默认脚本同目录 knowledge，不用传）
+node .claude/skills/siheyuan/assemble.mjs --skeleton sk.json > instance.json
+# 2) 上传，拿到 cos:<key> 引用（凭据来自 TCB_SECRET_ID/KEY，临时凭据再补 TCB_TOKEN）
+node .claude/skills/siheyuan/upload_instance.mjs --file instance.json
+#    -> 输出形如：cos:instances/<uuid>.json
 ```
 
-打印完 —— **你的任务就到此结束**。
+拿到 `cos:instances/<uuid>.json` 后，调用 MCP 工具（名字带 mcp 前缀，
+即 `mcp__building-wiki__generate_building`）：
 
-**一个 MCP 工具都不要调。** ④ 几何计算、⑤ 体素化全部由**前端直连 MCP 执行**：
-它们的入参/输出是十几 KB ~ 400KB 的坐标数据，既撑不过你的工具调用通道（实测会被破坏成
-非法形态、必然失败重试），也是你必须回避的坐标。你只要把实例图谱原样交出即可。
+```json
+{ "instance_ref": "cos:instances/<uuid>.json" }
+```
 
-**出错时不要自己编几何/坐标**——那是踩红线。把工具的原始报错读回来，
-检查是不是骨架不合法（role 不在词表 / jin 与 courtyards 数量不符），改骨架重试。
+它会在 MCP 侧读回实例 → 跑 ④ compute_geometry → 跑 ⑤ geometry_to_boxes →
+**返回体素 BOX 清单 JSON**（含坐标；harness 对超大输出会持久化为引用返回）。
+把这个结果（或它给的引用）作为你的最终输出即可——**前端会据此渲染**。
+
+**为什么传引用不传值**：实例图谱 ~10KB，若走工具入参通道会被 harness 截断损坏
+（已实测：参数到达时变成 list 或非法 JSON 字符串，pydantic 直接拒）。所以先上传拿
+`cos:` 引用、再让 `generate_building` 按引用读回——绕开这条 10KB 通道。
+
+**出错时不要自己编几何/坐标**——那是踩红线。把 `generate_building` 的原始报错读回来，
+检查是不是骨架不合法（role 不在词表 / jin 与 courtyards 数量不符），改骨架重跑装配+上传+调用。
+临时凭据报 403 时，确认 `TCB_TOKEN` 已注入（同进程 env）。
