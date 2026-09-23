@@ -2,6 +2,7 @@
  *
  * 链路（v3，2026-09-22）：文本 → ACP(OAK Agent 推导骨架 → 装配出实例图谱)
  *       → 前端从事件流里捞出实例图谱 → 前端直连 MCP 跑 ④⑤ → Three.js 渲染
+ *       → 上材质：每类(role)按确定性哈希随手分一张 16×16 灰度贴图，与 role 色相乘上色
  *
  * 为什么 ④⑤ 都由前端跑、不再让 Agent 调：
  *   OAK harness 的**工具入参**通道扛不住大 payload。实测 Agent 调 compute_geometry 时，
@@ -56,22 +57,54 @@ controls.minDistance = 8;
 controls.maxDistance = 200;
 controls.target.set(0, 0.5, 0);
 
+/* ============ 材质：每类(role)随手分一张贴图 ============
+   贴图是 16×16 的**灰度**图案（亮度均值贴近 255），与 role 颜色（instanceColor）
+   **相乘**上色 —— 图案负责"方块感"，颜色负责"这是哪一栋"，互不干扰。
+   这正是 Minecraft 的做法：几何严丝合缝，方块感来自贴图本身。
+
+   role -> 贴图**不带业务含义**：按 role 名做确定性哈希取模，落到 4 张里的一张。
+   确定性是硬要求 —— 不能用 Math.random()，否则同一座院每次生成换个花纹、像坏了；
+   哈希保证「同一类每次长一样」，且前端不需要任何知识表或接口。 */
+const TEXTURES = ["zhuan", "qiang", "mu", "hui"];
+
+function textureOfRole(role) {
+  const s = String(role || "");
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return TEXTURES[h % TEXTURES.length];
+}
+
+const texLoader = new THREE.TextureLoader();
+const texCache = new Map();
+function loadTexture(name) {
+  let t = texCache.get(name);
+  if (!t) {
+    t = texLoader.load(`./textures/${name}.png`);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.magFilter = THREE.NearestFilter;              // 放大用最近邻，保住像素块感
+    t.minFilter = THREE.NearestMipmapNearestFilter;
+    t.anisotropy = 4;
+    texCache.set(name, t);
+  }
+  return t;
+}
+
 /* ================= 体素 ================= */
 const boxRoot = new THREE.Group();
 scene.add(boxRoot);
 
-let voxMesh = null;    // 单个 InstancedMesh（按实例色着色，一个 draw call）
+let voxMeshes = [];    // 按贴图分组的 InstancedMesh（贴图不同，材质不能共用）
 let voxBoxes = [];     // Y 升序，供点选反查与取景
-let grow = null;       // 渐进生长：{ total, start, duration, ys }
+let grow = null;       // 渐进生长：{ total, start, duration, ys, parts }
 
 function clearBoxes() {
   grow = null;
-  if (voxMesh) {
-    boxRoot.remove(voxMesh);
-    voxMesh.geometry.dispose();
-    voxMesh.material.dispose();
-    voxMesh = null;
+  for (const mesh of voxMeshes) {          // 各组共用同一份 BoxGeometry，几何体只释一次
+    boxRoot.remove(mesh);
+    mesh.material.dispose();               // 贴图在 texCache 里复用，不随组销毁
   }
+  if (voxMeshes.length) voxMeshes[0].geometry.dispose();
+  voxMeshes = [];
   voxBoxes = [];
 }
 
@@ -79,62 +112,82 @@ function addBoxes(boxes) {
   clearBoxes();
   if (!Array.isArray(boxes) || !boxes.length) return 0;
 
-  // Y 升序 → 「低于阈值的高度全显示」即整体自下而上长高
-  const sorted = boxes.slice().sort((a, b) => a.y - b.y);
+  // 按贴图分组，每组一个 InstancedMesh（贴图不同，材质不能共用）
+  const groups = new Map();
+  for (const b of boxes) {
+    const tex = textureOfRole(b.role);
+    let arr = groups.get(tex);
+    if (!arr) groups.set(tex, (arr = []));
+    arr.push(b);
+  }
 
-  const geo = new THREE.BoxGeometry(1, 1, 1);
-  const mat = new THREE.MeshStandardMaterial({ roughness: 0.82, metalness: 0.0 });
-  const mesh = new THREE.InstancedMesh(geo, mat, sorted.length);
-
+  const geo = new THREE.BoxGeometry(1, 1, 1);   // 各组共用一份几何体（UV 每面 0→1，即每面一张贴图）
   const m = new THREE.Matrix4();
   const p = new THREE.Vector3();
   const q = new THREE.Quaternion();
   const s = new THREE.Vector3();
   const col = new THREE.Color();
-  for (let i = 0; i < sorted.length; i++) {
-    const b = sorted[i];
-    p.set(b.x, b.y, b.z);
-    s.set(b.w, b.h, b.d);            // 满格：相邻块共面 → 零缝
-    m.compose(p, q, s);
-    mesh.setMatrixAt(i, m);
-    col.set(b.color !== undefined ? b.color : 0x999999);
-    mesh.setColorAt(i, col);
+  const parts = [];
+  let total = 0;
+
+  for (const [tex, arr] of groups) {
+    // 组内 Y 升序 → 「低于阈值的高度全显示」即整体自下而上长高
+    const sorted = arr.slice().sort((a, b) => a.y - b.y);
+    const mat = new THREE.MeshStandardMaterial({
+      map: loadTexture(tex),
+      roughness: 0.82,
+      metalness: 0.0,                  // 砖木石都不用金属感，免得高光糊住贴图
+    });
+    const mesh = new THREE.InstancedMesh(geo, mat, sorted.length);
+    for (let i = 0; i < sorted.length; i++) {
+      const b = sorted[i];
+      p.set(b.x, b.y, b.z);
+      s.set(b.w, b.h, b.d);            // 满格：相邻块共面 → 零缝
+      m.compose(p, q, s);
+      mesh.setMatrixAt(i, m);
+      col.set(b.color !== undefined ? b.color : 0x999999);
+      mesh.setColorAt(i, col);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.userData.boxes = sorted;      // 点选反查（下标与实例一致）
+
+    // 包围球必须在 count 归零前算好：three 只用「算球那一刻的 count」，
+    // 算完永久缓存；若留给渲染时惰性计算，那时 count 已被生长动画压到很小，
+    // 球体会退化到墙角一小块，视锥剔除会把整个模型剔掉（画面空场景）。
+    mesh.computeBoundingSphere();
+    mesh.count = 0;
+
+    boxRoot.add(mesh);
+    voxMeshes.push(mesh);
+    parts.push({ mesh, ys: sorted.map((b) => b.y) });
+    total += sorted.length;
   }
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  mesh.userData.boxes = sorted;      // 点选反查（下标与实例一致）
 
-  // 包围球必须在 count 归零前算好：three 只用「算球那一刻的 count」，
-  // 算完永久缓存；若留给渲染时惰性计算，那时 count 已被生长动画压到很小，
-  // 球体会退化到墙角一小块，视锥剔除会把整个模型剔掉（画面空场景）。
-  mesh.computeBoundingSphere();
-  mesh.count = 0;
+  voxBoxes = boxes.slice().sort((a, b) => a.y - b.y);
 
-  boxRoot.add(mesh);
-  voxMesh = mesh;
-  voxBoxes = sorted;
-
-  const bb = computeBoxesAABB(sorted);
+  const bb = computeBoxesAABB(boxes);
   if (!bb.isEmpty()) fitCameraToBox(bb);   // 先按全量构图对准相机，避免生长中镜头漂移
 
-  const total = sorted.length;
   const duration = Math.min(7000, Math.max(3000, Math.round(total / 2)));
-  grow = { total, start: performance.now(), duration, ys: sorted.map((b) => b.y) };
+  grow = { total, start: performance.now(), duration, ys: voxBoxes.map((b) => b.y), parts };
   setStatus(`生成体素模型 · ${total} 体素`);
   return total;
 }
 
 function growTo(threshold) {
-  if (!grow || !voxMesh) return;
-  const ys = grow.ys;
-  let n = 0;
-  while (n < ys.length && ys[n] <= threshold) n++;
-  if (voxMesh.count !== n) voxMesh.count = n;
+  if (!grow) return;
+  for (const part of grow.parts) {         // 各组按同一高度阈值推进，整体仍是自下而上长高
+    const ys = part.ys;
+    let n = 0;
+    while (n < ys.length && ys[n] <= threshold) n++;
+    if (part.mesh.count !== n) part.mesh.count = n;
+  }
 }
 
 function finishGrow() {
   if (!grow) return;
-  if (voxMesh) voxMesh.count = grow.total;
+  for (const part of grow.parts) part.mesh.count = part.ys.length;
   grow = null;
 }
 
@@ -182,13 +235,14 @@ renderer.domElement.addEventListener("pointerup", (e) => {
   const moved = Math.hypot(e.clientX - downXY[0], e.clientY - downXY[1]);
   downXY = null;
   if (moved > 5) return;               // 拖拽不算点选
-  if (!voxMesh) return;
+  if (!voxMeshes.length) return;
   pointer.x = (e.clientX / innerWidth) * 2 - 1;
   pointer.y = -(e.clientY / innerHeight) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
-  const hits = raycaster.intersectObject(voxMesh, false);
+  const hits = raycaster.intersectObjects(voxMeshes, false);  // 命中哪组，就用哪组的实例表反查
   if (hits.length) {
-    const b = voxMesh.userData.boxes[hits[0].instanceId];
+    const hit = hits[0];
+    const b = hit.object.userData.boxes[hit.instanceId];
     if (b) setStatus(`选中：${b.label || b.role || "未知"}`);
   }
 });

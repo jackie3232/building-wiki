@@ -17,6 +17,8 @@ BUILDING.WIKI · MVP 2.0 服务（Starlette ASGI）
   - ⑥ 渲染    → 归独立前端（新起，不再是本容器的 `/` + `/static`）
 
 故摘掉全部 1.0 HTTP 路由，容器只留 /mcp。
+（材质贴图的「类 -> 图」映射 2.0 不走知识中心：前端按 role 名哈希随手分图，
+ 故 /api/dict 未复出，容器工具集与 2.0 其余部分一致保持三个。）
 1.0 的实现内容已一并清除（2026-09-22 决策：1.0 内容不再保留）——
 `static/`（查看器与图谱视图）、`engine/understanding.py`（服务端 ① 理解层）、
 `geometry.text_to_instance`（1.0 的 NL 入口）均已删除。
