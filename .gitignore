@@ -38,9 +38,3 @@ web/config.local.js
 
 # Node 依赖目录（不入库；云函数部署由平台 Auto install dependencies 安装）
 node_modules/
-
-# CloudBase CLI 本地配置（deploy 时生成，可能含环境标识/配置，一律不入库）
-cloudbaserc.json
-**/cloudbaserc.json
-.cloudbase/
-.cloudbaserc
