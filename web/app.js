@@ -1,19 +1,17 @@
 /* BUILDING.WIKI · MVP 2.0 前端
  *
- * 链路（v3，2026-09-22）：文本 → ACP(OAK Agent 推导骨架 → 装配出实例图谱)
- *       → 前端从事件流里捞出实例图谱 → 前端直连 MCP 跑 ④⑤ → Three.js 渲染
- *       → 上材质：每类(role)按确定性哈希随手分一张 16×16 灰度贴图，与 role 色相乘上色
+ * 链路（全 Agent 形态，2026-09-22）：文本 → ACP(OAK Agent)
+ *       Agent 侧一气呵成：推导骨架 → 装配实例图谱 → 上传云存储(cos:<key>)
+ *       → 调 MCP generate_building(按引用读回 → ④ compute_geometry → ⑤ geometry_to_boxes)
+ *       → 返回体素 BOX 清单 → 前端只负责渲染。
  *
- * 为什么 ④⑤ 都由前端跑、不再让 Agent 调：
- *   OAK harness 的**工具入参**通道扛不住大 payload。实测 Agent 调 compute_geometry 时，
- *   约 10KB 的实例图谱入参会先坏（变成 list，或非法 JSON 串），pydantic 直接报
- *   dict_type，它便反复重试 —— 一轮被拖到 5 分钟以上（4 次调用里 3 次失败）。
- *   而同样 ~10KB 的内容走**工具输出**通道完好无损（Agent 读 instance.json 的
- *   rawOutput 完整留在流里），浏览器直连 MCP 更是完全不经 harness。
- *   故 ④⑤ 一律由前端做，Agent 的职责收在「装配出实例图谱并打印出来」为止。
+ * 为什么传引用不传值：实例图谱 ~10KB 若走工具入参通道会被 harness 截断损坏，
+ * 故 Agent 先上传拿 cos: 引用、再让 generate_building 按引用读回，绕开 10KB 通道。
+ * 体素结果可能较大（~0.5–1MB），harness 可能落盘为 <persisted-output> 引用，
+ * 前端据此拉取（具体格式以 item5 运行时实测为准，本文件已做兼容分支）。
  *
- * 分层纪律：本文件只管「取数 + 画」。拓扑/规制在 Agent 侧的 skill，
- * 坐标/几何在容器内的引擎，前端不重复任何一方的推导。
+ * 分层纪律：本文件只管「取数 + 画」。拓扑/规制在 Agent 侧 skill，
+ * 坐标/几何/体素化在容器内引擎与 MCP，前端不重复任何一方的推导。
  */
 
 import * as THREE from "three";
@@ -21,7 +19,6 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 const CFG = window.BW_CONFIG || {};
 const ACP_URL = CFG.ACP_URL;
-const MCP_URL = CFG.MCP_URL;
 const KEY = (CFG.PUBLISHABLE_KEY || "").trim();
 
 /* ================= 场景基础 ================= */
@@ -250,6 +247,7 @@ renderer.domElement.addEventListener("pointerup", (e) => {
 /* ================= ACP：调 Agent，读事件流 ================= */
 function toolLabel(title) {
   if (!title) return "工具";
+  if (title.includes("generate_building")) return "生成体素模型";
   if (title.includes("compute_geometry")) return "几何计算";
   if (title.includes("geometry_to_boxes")) return "体素化";
   if (title === "Read") return "读知识库";
@@ -258,19 +256,53 @@ function toolLabel(title) {
   return title.replace(/^mcp__[^_]+__/, "");
 }
 
-/* 实例图谱收割：Agent 把 instance.json 打印进流里（Read/Bash），其 rawOutput 带
- * 工具的行号前缀（`1\t{`），剥掉后再定位最外层 {...} 并 JSON.parse。
- * 必须校验 data.courtyards 才认 —— 否则 SKILL.md 里那段骨架示例会被误收。 */
-function harvestInstance(raw) {
-  if (typeof raw !== "string" || raw.length < 200) return null;
-  const text = raw.split("\n").map((l) => l.replace(/^\s*\d+\t/, "")).join("\n");
-  const i = text.indexOf("{");
-  const j = text.lastIndexOf("}");
-  if (i < 0 || j <= i) return null;
+/* 体素结果收割：Agent 调 mcp__building-wiki__generate_building，其 rawOutput 含
+ * ④⑤ 产出的体素 BOX 清单。可能形态：
+ *   A. 直接是 JSON 数组（小输出）；
+ *   B. {"result":"<JSON 字符串>"}（MCP 工具包一层 result）；
+ *   C. {"result":"<URL 字符串>"} —— generate_building 已改为「回传云存储预签名 URL」，
+ *      故正常路径就是这一形态（2026-09-23 实测）；若超大输出被 harness 落盘为
+ *      <persisted-output> 引用，则从中提取 URL 再拉取。
+ * 行号前缀（`1\t{`）先剥离；返回 array 或 URL/ref 字符串，无法识别则返回 null。 */
+function harvestBoxes(raw) {
+  if (typeof raw !== "string" || raw.length < 2) return null;
+  const text = raw.split("\n").map((l) => l.replace(/^\s*\d+\t/, "")).join("\n").trim();
+
+  const tryParse = (s) => {
+    try {
+      const a = JSON.parse(s);
+      if (Array.isArray(a) && a.length && a[0] && "x" in a[0]) return a;
+      if (a && typeof a.result === "string") {
+        const b = JSON.parse(a.result);
+        if (Array.isArray(b) && b.length && b[0] && "x" in b[0]) return b;
+      }
+    } catch { /* 不是可识别的体素 JSON */ }
+    return null;
+  };
+
+  if (text.startsWith("[")) {
+    const a = tryParse(text);
+    if (a) return a;
+  }
+  const b = tryParse(text);
+  if (b) return b;
+
+  // 情况 C：落盘引用 / URL 引用。
+  // rawOutput 实测形态（2026-09-23 抓取）：{"result":"https://...&q-signature=xxxx"}
+  // ⚠️ 不能用 /https?:\/\/\S+/ 直接抓 —— \S+ 会把结尾的 "} 一并吞掉，拼进 URL 后
+  //    COS 判 SignatureDoesNotMatch(403)，返回 XML，JSON.parse 随即抛
+  //    Unexpected token '<'。故先 JSON 解包取纯串，再按「排除定界符」取 URL。
+  const persisted = raw.match(/<persisted-output>([\s\S]*?)<\/persisted-output>/i);
+  if (persisted) return persisted[1].trim();
+
+  let cand = text;
   try {
-    const o = JSON.parse(text.slice(i, j + 1));
-    if (o && o.data && Array.isArray(o.data.courtyards) && o.data.courtyards.length) return o;
-  } catch { /* 不是完整的实例图谱 */ }
+    const j = JSON.parse(cand);
+    if (typeof j === "string") cand = j;
+    else if (j && typeof j.result === "string") cand = j.result;
+  } catch { /* 非 JSON 包装，按原文取 */ }
+  const u = cand.match(/https?:\/\/[^\s"'<>)\]}]+/);
+  if (u) return u[0];
   return null;
 }
 
@@ -301,23 +333,11 @@ function handleFrame(frame, titles, state, onEvent) {
     if (upd.status !== "completed") return;
     onEvent({ type: "tool", label: toolLabel(name), phase: "done" });
 
-    // v3：Agent 不再调 ④⑤，改为把 instance.json 打印进流里 —— 这里收割
-    if (upd.rawOutput) {
-      const inst = harvestInstance(upd.rawOutput);
-      if (inst) state.instance = inst;        // 保留最后一次成功的
+    // 全 Agent 形态：Agent 调 generate_building 算完 ④⑤，体素 BOX 经 rawOutput 回流
+    if (upd.rawOutput && name.includes("generate_building")) {
+      const out = harvestBoxes(upd.rawOutput);
+      if (out) state.boxes = out;           // 末次成功的（array 或 ref 字符串）
     }
-
-    if (!name.includes("compute_geometry") || !upd.rawOutput) return;
-    // rawOutput 形如 {"result":"<几何 JSON 字符串>"}（两层）；
-    // 若输出过大被 harness 落盘，则是 <persisted-output> 文本，JSON.parse 会失败 → 跳过
-    try {
-      const outer = JSON.parse(upd.rawOutput);
-      if (typeof outer.result !== "string") return;
-      const arr = JSON.parse(outer.result);
-      if (Array.isArray(arr) && arr.length && arr[0] && arr[0].center) {
-        state.geometry = arr;          // 保留最后一次成功的
-      }
-    } catch { /* 大输出被落盘，忽略 */ }
   }
 }
 
@@ -341,7 +361,7 @@ async function runAgent(text, onEvent) {
   const reader = resp.body.getReader();
   const dec = new TextDecoder();
   const titles = new Map();
-  const state = { text: "", geometry: null, instance: null, tools: 0, failed: 0 };
+  const state = { text: "", boxes: null, tools: 0, failed: 0 };
   let buf = "";
   let stop = false;
 
@@ -362,29 +382,6 @@ async function runAgent(text, onEvent) {
     }
   }
   return state;
-}
-
-/* ================= MCP：前端直连出体素 ================= */
-async function mcpCall(name, args) {
-  const resp = await fetch(MCP_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "application/json, text/event-stream",
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0", id: 1, method: "tools/call",
-      params: { name, arguments: args },
-    }),
-  });
-  if (!resp.ok) throw new Error(`MCP 返回 HTTP ${resp.status}`);
-  const j = await resp.json();
-  if (j.error) throw new Error(j.error.message || "MCP 调用失败");
-  const r = j.result || {};
-  const text = r.content && r.content[0] && r.content[0].text;
-  if (r.isError) throw new Error(text || "工具执行失败");
-  if (!text) throw new Error("MCP 返回为空");
-  return JSON.parse(text);
 }
 
 /* ================= UI ================= */
@@ -464,22 +461,24 @@ async function send() {
     const state = await runAgent(text, onAgentEvent);
     if (state.text) updateAgentChat(state.text);
 
-    // ④：Agent 把实例图谱打印进流里 → 前端直连 MCP 算几何（v3 起 ④ 归前端）
-    let geometry = state.geometry;          // Agent 若仍自己调了 ④，用它的结果
-    if (!geometry && state.instance) {
-      setStatus("实例图谱就绪 → 几何计算…", true);
-      geometry = await mcpCall("compute_geometry", { instance: state.instance });
+    // 全 Agent 形态：体素 BOX 已在 Agent 侧由 generate_building 算出，经 ACP 流回
+    // （inline 数组，或被 harness 落盘为 <persisted-output> 引用字符串）。
+    let boxes = null;
+    if (Array.isArray(state.boxes)) {
+      boxes = state.boxes;
+    } else if (typeof state.boxes === "string") {
+      setStatus("体素结果较大，正在拉取…", true);
+      const txt = await (await fetch(state.boxes)).text();
+      boxes = JSON.parse(txt);
     }
 
-    if (!geometry) {
-      setStatus("Agent 未产出实例图谱，请重试或换个说法");
+    if (!boxes) {
+      setStatus("Agent 未产出体素模型，请重试或换个说法");
       appendChat("agent", (state.text ? "\n\n" : "") +
-        "（本次未取到实例图谱 —— Agent 可能在装配阶段被中断，换一种描述再试。）");
+        "（本次未取到体素结果 —— 可能 Agent 在装配/上传/生成阶段被中断，换一种描述再试。）");
       return;
     }
 
-    setStatus(`几何就绪 · ${geometry.length} 构件 → 体素化…`, true);
-    const boxes = await mcpCall("geometry_to_boxes", { geometry });
     const n = addBoxes(boxes);
     setStatus(`已生成 · ${n} 体素`);
   } catch (e) {
