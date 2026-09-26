@@ -421,6 +421,210 @@ function wrap(jin, courtyards, rulesDoc, dictDoc, generatedBy = "assemble.mjs (s
   return inst;
 }
 
+// ---------------- 第二级硬闸：实例图谱 regime 校验（occupancy + position） ----------------
+// 与 Python geometry.validate_instance_graph 同契约、同事实源（occupancy.rules / position）。
+// 性质：确定性、非智能化；装配出口 fail-fast，使 Agent 在调 generate_building(55s MCP) 前
+// 拦住违规骨架。这是「理解层产物准入」(validatePlan) 之上的「几何前置准入」——后者只查
+// 词表/值域/结构，本闸补查「四至构成与门位」这类只有 occupancy/position 才定义的规制。
+
+/** 取 occupancy.rules；缺失即报图谱缺陷（与 Python _occupancy_rules 同）。 */
+function occupancyRules(rulesDoc) {
+  const occ = rulesDoc?.occupancy?.rules ?? null;
+  if (!Array.isArray(occ) || occ.length === 0) {
+    throw new Error("图谱缺陷：siheyuan.rules 缺少 occupancy.rules（院落四至默认构成）");
+  }
+  return occ;
+}
+
+/** 第 k 进的四至规则：按序求值、首个命中者胜出（与 Python _occupancy_of 同）。 */
+function occupancyOf(k, jin, occRules) {
+  for (const r of occRules) {
+    const at = r.at;
+    if (at === "middle") { if (!(1 < k && k < jin)) continue; }
+    else if (at === "last") { if (k !== jin) continue; }
+    else if (at !== k) continue;
+    if ("jinEq" in r && jin !== r.jinEq) continue;
+    if ("jinGte" in r && jin < r.jinGte) continue;
+    if ("jinLte" in r && jin > r.jinLte) continue;
+    return r;
+  }
+  throw new Error(`图谱缺陷：第 ${k} 进（共 ${jin} 进）在 rules.occupancy 无规则命中`);
+}
+
+const VALID_COURT_ROLES = new Set(["waiyuan", "neiyuan", "houzhaoyuan", "tingyuan", "tingfangyuan"]);
+
+/**
+ * 实例图谱硬闸：装配出口强制调用。返回 true 或抛「图谱缺陷」。
+ * @param {object} instance 自包含实例图谱（assemble 产物）
+ * @param {object} rulesDoc 完整规则库（occupancy/position/paramRanges）
+ * @param {object} typeDoc 类型图谱
+ * @param {object} dictDoc 命名字典
+ */
+export function validateInstanceGraph(instance, rulesDoc, typeDoc, dictDoc) {
+  if (instance === null || typeof instance !== "object" || Array.isArray(instance)) {
+    throw new Error("图谱缺陷：校验器收到非对象 instance");
+  }
+  const data = instance.data ?? instance;
+  if (data === null || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("图谱缺陷：instance.data 须为对象");
+  }
+  const courtyards = data.courtyards;
+  if (!Array.isArray(courtyards) || courtyards.length === 0) {
+    throw new Error("图谱缺陷：instance.data.courtyards 缺失或为空");
+  }
+  const jin = data.jin;
+  if (!Number.isInteger(jin) || jin < 1) {
+    throw new Error(`图谱缺陷：jin 须为正整数，实际 ${JSON.stringify(jin)}`);
+  }
+  if (courtyards.length !== jin) {
+    throw new Error(`图谱缺陷：courtyards 数量 ${courtyards.length} 与 jin=${jin} 不符`);
+  }
+
+  // sequence 须为 1..jin 且唯一
+  const seqs = courtyards.map((c) => c.sequence);
+  const expect = [...Array(jin)].map((_, i) => i + 1);
+  if (JSON.stringify([...seqs].sort((a, b) => a - b)) !== JSON.stringify(expect)) {
+    throw new Error(`图谱缺陷：courtyards.sequence 须为 1..${jin} 且唯一，实际 ${JSON.stringify(seqs)}`);
+  }
+
+  // 词表（role 白名单）
+  const roles = legalRoles(typeDoc, dictDoc);
+  const used = new Set();
+  for (const c of courtyards) {
+    const enc = c.enclosure ?? {};
+    for (const key of ["bei", "nan", "dong", "xi", "beimen", "nanmen"]) {
+      const r = enc[key];
+      if (r !== null && typeof r === "object" && !Array.isArray(r) && r.role) used.add(r.role);
+    }
+    for (const p of c.peripheral ?? []) {
+      if (p !== null && typeof p === "object" && !Array.isArray(p) && p.role) used.add(p.role);
+    }
+  }
+  const bad = [...used].filter((r) => !roles.has(r));
+  if (bad.length) {
+    throw new Error(`图谱缺陷：实例图谱含未登记角色 ${JSON.stringify(bad)}（不在 type.roles ∪ dict.空间角色 词表内）`);
+  }
+
+  // 值域（paramRanges）
+  const pr = rulesDoc?.paramRanges ?? {};
+  const jr = pr?.jin?.range;
+  if (Array.isArray(jr) && jr.length === 2 && (jin < jr[0] || jin > jr[1])) {
+    throw new Error(`图谱缺陷：jin=${jin} 超出 paramRanges.jin 值域 ${JSON.stringify(jr)}`);
+  }
+  const mkCfg = pr?.miankuo ?? {};
+  const mkRng = mkCfg.range ?? [1, 7];
+  const mkLo = mkRng[0], mkHi = mkRng[1];
+  const mkStep = Number.isInteger(mkCfg.step) && mkCfg.step > 0 ? mkCfg.step : 2;
+  for (const c of courtyards) {
+    for (const side of ["bei", "nan", "dong", "xi"]) {
+      const r = c.enclosure?.[side];
+      const mk = r?.miankuo;
+      if (Number.isInteger(mk)) {
+        if (mk < mkLo || mk > mkHi) {
+          throw new Error(`图谱缺陷：第 ${c.sequence} 进 ${side} 面阔 miankuo=${mk} 超出 paramRanges.miankuo 值域 [${mkLo},${mkHi}]`);
+        }
+        if (mkStep && (mk - mkLo) % mkStep !== 0) {
+          const seq = [...Array(Math.floor((mkHi - mkLo) / mkStep) + 1)].map((_, i) => mkLo + i * mkStep);
+          throw new Error(`图谱缺陷：第 ${c.sequence} 进 ${side} 面阔 miankuo=${mk} 须为步长 ${mkStep} 的序列 ${JSON.stringify(seq)}`);
+        }
+      }
+    }
+  }
+
+  // occupancy regime（四至构成）
+  const occRules = occupancyRules(rulesDoc);
+  const seenNames = new Set();
+  for (const c of courtyards) {
+    const seq = c.sequence;
+    const enc = c.enclosure ?? {};
+    const rule = occupancyOf(seq, jin, occRules);
+    const rid = rule.id ?? "?";
+
+    const expSides = {};
+    for (const side of ["bei", "nan", "dong", "xi"]) {
+      const spec = rule.sides?.[side];
+      if (spec) expSides[side] = spec;
+    }
+    for (const [side, spec] of Object.entries(expSides)) {
+      const actual = enc[side];
+      if (actual === null || typeof actual !== "object" || Array.isArray(actual) || roleOf(actual, null) !== spec.role) {
+        throw new Error(`图谱缺陷：第 ${seq} 进(共 ${jin} 进) 四至「${side}」应为 ${spec.role}，实际为 ${roleOf(actual, null)}（occupancy.${rid} 约束）`);
+      }
+      const expGate = spec.gate?.role ?? null;
+      const ag = actual.gate;
+      const actGate = ag !== null && typeof ag === "object" && !Array.isArray(ag) ? ag.role : null;
+      if (expGate !== null && expGate !== actGate) {
+        throw new Error(`图谱缺陷：第 ${seq} 进 四至「${side}」所嵌门应为 ${expGate}，实际为 ${actGate}（occupancy.${rid} 约束）`);
+      }
+      if (expGate === null && actGate !== null && actGate !== "houmen") {
+        throw new Error(`图谱缺陷：第 ${seq} 进 四至「${side}」按 occupancy.${rid} 不应嵌门，实际嵌了 ${actGate}`);
+      }
+    }
+    for (const side of ["bei", "nan", "dong", "xi"]) {
+      if (!(side in expSides) && enc[side] !== null && enc[side] !== undefined) {
+        throw new Error(`图谱缺陷：第 ${seq} 进 四至「${side}」按 occupancy.${rid} 不应有建筑，实际存在 ${roleOf(enc[side], null)}`);
+      }
+    }
+    const expBeimen = rule.beimen?.role ?? null;
+    if (roleOf(enc.beimen, null) !== expBeimen) {
+      throw new Error(`图谱缺陷：第 ${seq} 进 beimen 应为 ${expBeimen}，实际为 ${roleOf(enc.beimen, null)}（occupancy.${rid} 约束）`);
+    }
+    const expPer = new Set((rule.peripheral ?? []).map((p) => p.role).filter(Boolean));
+    const actPer = new Set((c.peripheral ?? []).map((p) => p.role).filter(Boolean));
+    if (JSON.stringify([...expPer].sort()) !== JSON.stringify([...actPer].sort())) {
+      throw new Error(`图谱缺陷：第 ${seq} 进 peripheral 应为 ${JSON.stringify([...expPer].sort())}，实际为 ${JSON.stringify([...actPer].sort())}（occupancy.${rid} 约束）`);
+    }
+    if (Boolean(rule.perimeter) !== Boolean(c.perimeter)) {
+      throw new Error(`图谱缺陷：第 ${seq} 进 perimeter 应为 ${Boolean(rule.perimeter)}，实际为 ${Boolean(c.perimeter)}（occupancy.${rid} 约束）`);
+    }
+
+    // 院落命名（naming）轻量校验
+    const name = c.name;
+    if (typeof name !== "string" || !name.trim()) {
+      throw new Error(`图谱缺陷：第 ${seq} 进 院名为空（sequence.naming 推导失败）`);
+    }
+    if (seenNames.has(name)) {
+      throw new Error(`图谱缺陷：院名「${name}」重复（sequence.naming 须唯一）`);
+    }
+    seenNames.add(name);
+    const cr = c.role;
+    if (cr !== null && cr !== undefined && !VALID_COURT_ROLES.has(cr)) {
+      throw new Error(`图谱缺陷：院落角色 ${JSON.stringify(cr)} 非法（须为 ${[...VALID_COURT_ROLES].join("/")}）`);
+    }
+  }
+
+  // position 显式校验（门的特殊位置语义）
+  for (const c of courtyards) {
+    const seq = c.sequence;
+    const enc = c.enclosure ?? {};
+    const beimenRole = roleOf(enc.beimen, null);
+    const nanGate = enc.nan?.gate?.role ?? null;
+    const beiGate = enc.bei?.gate?.role ?? null;
+    if (beimenRole === "chuihuamen" && !(seq === 1 && jin >= 2)) {
+      throw new Error(`图谱缺陷：垂花门(二门)只应设于首进北界(k=1, jin>=2)，却出现在第 ${seq} 进（position.chuihuamen 约束）`);
+    }
+    if (nanGate === "zhaimen" && seq !== 1) {
+      throw new Error(`图谱缺陷：宅门(zhaimen)只应嵌于首进倒座房东南角，却出现在第 ${seq} 进（position.zhaimen 约束）`);
+    }
+    if (beiGate === "houmen") {
+      if (seq !== jin) {
+        throw new Error(`图谱缺陷：后门(houmen)只应设于末进后罩房西北角，却出现在第 ${seq} 进（position.houmen 约束）`);
+      }
+      if (jin < 3) {
+        throw new Error(`图谱缺陷：后门(houmen)仅在 jin>=3 的末进才可能出现（后罩房只存在于 jin>=3），当前 jin=${jin}（position.houmen 约束）`);
+      }
+    }
+  }
+
+  // appliedRules.norms 轻量完整性
+  const norms = instance.appliedRules?.norms ?? {};
+  if (!("modus" in norms)) {
+    throw new Error("图谱缺陷：instance.appliedRules.norms.modus 缺失（④ 布局第一步即消费）");
+  }
+
+  return true;
+}
+
 /**
  * ① 骨架 -> 自包含 instance（装配 = 查表 + 拓扑，零推理）。
  *
@@ -476,7 +680,12 @@ export function assembleInstance(plan, knowledgeDir, opts = {}) {
     courtyards.push(c);
   });
 
-  return finish(jin, courtyards, rules, dict, opts.omit ?? null);
+  const inst = finish(jin, courtyards, rules, dict, opts.omit ?? null);
+  // 装配出口硬闸：实例图谱 regime 校验（occupancy + position）。不过即抛错，
+  // 使 Agent 在调 generate_building(55s MCP) 前 fail-fast；与 Python 端 generate_building
+  // 读回后的硬闸同契约、同事实源，两端双重保险。
+  validateInstanceGraph(inst, rules, type, dict);
+  return inst;
 }
 
 // ---------------- CLI ----------------

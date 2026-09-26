@@ -342,6 +342,41 @@ def _court_namer(rules_doc, dict_doc):
     return court_name
 
 
+def _occupancy_rules(rules_doc):
+    """取 occupancy.rules（院落四至默认构成）；缺失即报图谱缺陷。
+
+    它是「第 k 进哪一侧放什么角色」的唯一事实源；_plan_by_jin 与
+    validate_instance_graph 共用，杜绝「代码一套、规则一套」两处表达漂移。
+    """
+    occ = ((rules_doc.get("occupancy") or {}).get("rules")) or []
+    if not occ:
+        raise ValueError("图谱缺陷：siheyuan.rules 缺少 occupancy.rules"
+                         "（院落四至默认构成 —— 每进哪一侧放什么角色的唯一事实源）")
+    return occ
+
+
+def _occupancy_of(k, jin, occ_rules):
+    """第 k 进的四至规则：按序求值、首个命中者胜出（与 sequence.naming 同律）。"""
+    for r in occ_rules:
+        at = r.get("at")
+        if at == "middle":
+            if not (1 < k < jin):
+                continue
+        elif at == "last":
+            if k != jin:
+                continue
+        elif at != k:
+            continue
+        if "jinEq" in r and jin != r["jinEq"]:
+            continue
+        if "jinGte" in r and jin < r["jinGte"]:
+            continue
+        if "jinLte" in r and jin > r["jinLte"]:
+            continue
+        return r
+    raise ValueError("图谱缺陷：第 %d 进（共 %d 进）在 rules.occupancy 无规则命中" % (k, jin))
+
+
 def _plan_by_jin(jin, norms, type_doc, court_name, rules_doc):
     """① 确定性生成器：按进数合成 courtyards。
 
@@ -357,35 +392,11 @@ def _plan_by_jin(jin, norms, type_doc, court_name, rules_doc):
         才在图谱里加，见 siheyuan.rules:position.houmen（用户 2026-09-20 定：默认不设）。
       - 穿堂是正房的一种**做法**（明间南北贯通），随正房归属本院，**不是门**（故图谱记 ring.nan.thru，不记 gate）。
     """
-    occ_rules = ((rules_doc.get("occupancy") or {}).get("rules")) or []
-    if not occ_rules:
-        raise ValueError("图谱缺陷：siheyuan.rules 缺少 occupancy.rules"
-                         "（院落四至默认构成 —— 每进哪一侧放什么角色的唯一事实源）")
-
-    def _occupancy_of(k):
-        """第 k 进的四至规则：按序求值、首个命中者胜出（与 sequence.naming 同律）。"""
-        for r in occ_rules:
-            at = r.get("at")
-            if at == "middle":
-                if not (1 < k < jin):
-                    continue
-            elif at == "last":
-                if k != jin:
-                    continue
-            elif at != k:
-                continue
-            if "jinEq" in r and jin != r["jinEq"]:
-                continue
-            if "jinGte" in r and jin < r["jinGte"]:
-                continue
-            if "jinLte" in r and jin > r["jinLte"]:
-                continue
-            return r
-        raise ValueError("图谱缺陷：第 %d 进（共 %d 进）在 rules.occupancy 无规则命中" % (k, jin))
+    occ_rules = _occupancy_rules(rules_doc)
 
     courtyards = []
     for k in range(1, jin + 1):
-        rule = _occupancy_of(k)
+        rule = _occupancy_of(k, jin, occ_rules)
         sides = rule.get("sides") or {}
         kwargs = {}
         for side in ("bei", "nan", "dong", "xi"):
@@ -721,6 +732,175 @@ def _graph_data(instance, fn):
             "图谱**（meta/data/appliedRules，建筑声明带数值），不是只写了 role 的骨架；"
             "骨架请先经装配器（assemble.mjs / assemble_instance）补全数值再调用" % fn)
     return data
+
+
+def validate_instance_graph(instance, rules_doc=None, type_doc=None, dict_doc=None):
+    """实例图谱硬闸：装配出口 + generate_building 读回实例后两处强制调用。
+
+    性质：自动化（确定性代码）、非智能化（不靠 LLM 判断）；违规即抛
+    ValueError("图谱缺陷：…")，不向下游(④⑤)传递。LLM 只是错误的消费者，不是校验者。
+
+    覆盖：结构 / 词表(role 白名单) / 值域(paramRanges) / occupancy+position regime /
+    院落命名(naming) / appliedRules.norms 轻量完整性。
+
+    规则单源：regime 校验经 _occupancy_of 复用 occupancy.rules（与 _plan_by_jin 同一事实源）；
+    position 显式校验复用 rules.position 同一份约束描述。杜绝「代码一套、规则一套」两处表达漂移。
+    """
+    if rules_doc is None or type_doc is None or dict_doc is None:
+        rules_doc, type_doc, dict_doc = _load_knowledge()
+
+    # —— 结构 ——
+    if not isinstance(instance, dict):
+        raise ValueError("图谱缺陷：校验器收到非对象 instance（应为自包含实例图谱）")
+    data = instance.get("data", instance)
+    if not isinstance(data, dict):
+        raise ValueError("图谱缺陷：instance.data 须为对象")
+    courtyards = data.get("courtyards")
+    if not isinstance(courtyards, list) or not courtyards:
+        raise ValueError("图谱缺陷：instance.data.courtyards 缺失或为空")
+    jin = data.get("jin")
+    if not isinstance(jin, int) or isinstance(jin, bool) or jin < 1:
+        raise ValueError("图谱缺陷：jin 须为正整数，实际 %r" % (jin,))
+    if len(courtyards) != jin:
+        raise ValueError("图谱缺陷：courtyards 数量 %d 与 jin=%d 不符" % (len(courtyards), jin))
+
+    # sequence 须为 1..jin 且唯一
+    seqs = [c.get("sequence") for c in courtyards]
+    if sorted(seqs) != list(range(1, jin + 1)):
+        raise ValueError("图谱缺陷：courtyards.sequence 须为 1..%d 且唯一，实际 %s" % (jin, seqs))
+
+    # —— 词表（role 白名单）——
+    legal = set((type_doc.get("roles") or {}).keys()) | set((dict_doc.get("空间角色") or {}).keys())
+    used = set()
+    for c in courtyards:
+        enc = c.get("enclosure") or {}
+        for key in ("bei", "nan", "dong", "xi", "beimen", "nanmen"):
+            r = enc.get(key)
+            if isinstance(r, dict) and r.get("role"):
+                used.add(r["role"])
+        for p in (c.get("peripheral") or []):
+            if isinstance(p, dict) and p.get("role"):
+                used.add(p["role"])
+    bad = sorted(used - legal)
+    if bad:
+        raise ValueError("图谱缺陷：实例图谱含未登记角色 %s（不在 type.roles ∪ dict.空间角色 词表内）" % bad)
+
+    # —— 值域（paramRanges）——
+    pr = rules_doc.get("paramRanges") or {}
+    jr = (pr.get("jin") or {}).get("range")
+    if jr and not (jr[0] <= jin <= jr[1]):
+        raise ValueError("图谱缺陷：jin=%d 超出 paramRanges.jin 值域 %s" % (jin, jr))
+    mk_cfg = pr.get("miankuo") or {}
+    _mk_rng = mk_cfg.get("range") or [1, 7]
+    mk_lo, mk_hi = _mk_rng[0], _mk_rng[1]
+    mk_step = mk_cfg.get("step", 2)
+    for c in courtyards:
+        for side in ("bei", "nan", "dong", "xi"):
+            r = (c.get("enclosure") or {}).get(side)
+            mk = r.get("miankuo") if isinstance(r, dict) else None
+            if isinstance(mk, int) and not isinstance(mk, bool):
+                if not (mk_lo <= mk <= mk_hi):
+                    raise ValueError("图谱缺陷：第 %s 进 %s 面阔 miankuo=%d 超出 paramRanges.miankuo 值域 [%d,%d]"
+                                     % (c.get("sequence"), side, mk, mk_lo, mk_hi))
+                if mk_step and (mk - mk_lo) % mk_step != 0:
+                    raise ValueError("图谱缺陷：第 %s 进 %s 面阔 miankuo=%d 须为步长 %d 的奇数序列 %s"
+                                     % (c.get("sequence"), side, mk, mk_step,
+                                        list(range(mk_lo, mk_hi + 1, mk_step))))
+
+    # —— occupancy regime（四至构成）——
+    occ_rules = _occupancy_rules(rules_doc)
+    valid_court_roles = {"waiyuan", "neiyuan", "houzhaoyuan", "tingyuan", "tingfangyuan"}
+    seen_names = set()
+    for c in courtyards:
+        seq = c.get("sequence")
+        enc = c.get("enclosure") or {}
+        rule = _occupancy_of(seq, jin, occ_rules)
+        rid = rule.get("id", "?")
+
+        # 四至角色构成
+        exp_sides = {}
+        for side in ("bei", "nan", "dong", "xi"):
+            spec = (rule.get("sides") or {}).get(side)
+            if spec:
+                exp_sides[side] = spec
+        for side, spec in exp_sides.items():
+            actual = enc.get(side)
+            if not isinstance(actual, dict) or _role_of(actual, None) != spec.get("role"):
+                raise ValueError("图谱缺陷：第 %s 进(共 %d 进) 四至「%s」应为 %s，实际为 %s"
+                                 "（occupancy.%s 约束）"
+                                 % (seq, jin, side, spec.get("role"), _role_of(actual, None), rid))
+            # 该侧所嵌门（如倒座房上的宅门）角色须一致；规则未声明门时，仅允许
+            # position 显式允许的附加门（后门 houmen 只挂末进北房，由下方 position 校验把关）。
+            exp_gate = (spec.get("gate") or {}).get("role")
+            ag = actual.get("gate")
+            act_gate = ag.get("role") if isinstance(ag, dict) else None
+            if exp_gate is not None and exp_gate != act_gate:
+                raise ValueError("图谱缺陷：第 %s 进 四至「%s」所嵌门应为 %s，实际为 %s"
+                                 "（occupancy.%s 约束）" % (seq, side, exp_gate, act_gate, rid))
+            if exp_gate is None and act_gate is not None and act_gate != "houmen":
+                raise ValueError("图谱缺陷：第 %s 进 四至「%s」按 occupancy.%s 不应嵌门，"
+                                 "实际嵌了 %s" % (seq, side, rid, act_gate))
+        # 不该有的侧必须为空
+        for side in ("bei", "nan", "dong", "xi"):
+            if side not in exp_sides and enc.get(side) is not None:
+                raise ValueError("图谱缺陷：第 %s 进 四至「%s」按 occupancy.%s 不应有建筑，"
+                                 "实际存在 %s" % (seq, side, rid, _role_of(enc.get(side), None)))
+        # beimen（卡子墙门本体）
+        exp_beimen = (rule.get("beimen") or {}).get("role")
+        if _role_of(enc.get("beimen"), None) != exp_beimen:
+            raise ValueError("图谱缺陷：第 %s 进 beimen 应为 %s，实际为 %s（occupancy.%s 约束）"
+                             % (seq, exp_beimen, _role_of(enc.get("beimen"), None), rid))
+        # peripheral（附属）
+        exp_per = set(p.get("role") for p in (rule.get("peripheral") or []) if isinstance(p, dict))
+        act_per = set(p.get("role") for p in (c.get("peripheral") or []) if isinstance(p, dict))
+        if exp_per != act_per:
+            raise ValueError("图谱缺陷：第 %s 进 peripheral 应为 %s，实际为 %s（occupancy.%s 约束）"
+                             % (seq, sorted(exp_per), sorted(act_per), rid))
+        # perimeter（院墙环基线）
+        if bool(rule.get("perimeter")) != bool(c.get("perimeter")):
+            raise ValueError("图谱缺陷：第 %s 进 perimeter 应为 %s，实际为 %s（occupancy.%s 约束）"
+                             % (seq, bool(rule.get("perimeter")), bool(c.get("perimeter")), rid))
+
+        # 院落命名（naming）轻量校验
+        name = c.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("图谱缺陷：第 %s 进 院名为空（sequence.naming 推导失败）" % seq)
+        if name in seen_names:
+            raise ValueError("图谱缺陷：院名「%s」重复（sequence.naming 须唯一）" % name)
+        seen_names.add(name)
+        cr = c.get("role")
+        if cr is not None and cr not in valid_court_roles:
+            raise ValueError("图谱缺陷：院落角色 %r 非法（须为 %s）" % (cr, sorted(valid_court_roles)))
+
+    # —— position 显式校验（门的特殊位置语义）——
+    for c in courtyards:
+        seq = c.get("sequence")
+        enc = c.get("enclosure") or {}
+        beimen_role = _role_of(enc.get("beimen"), None)
+        nan_gate = ((enc.get("nan") or {}).get("gate") or {}).get("role")
+        bei_gate = ((enc.get("bei") or {}).get("gate") or {}).get("role")
+        if beimen_role == "chuihuamen" and not (seq == 1 and jin >= 2):
+            raise ValueError("图谱缺陷：垂花门(二门)只应设于首进北界(k=1, jin>=2)，"
+                             "却出现在第 %s 进（position.chuihuamen 约束）" % seq)
+        if nan_gate == "zhaimen" and seq != 1:
+            raise ValueError("图谱缺陷：宅门(zhaimen)只应嵌于首进倒座房东南角，"
+                             "却出现在第 %s 进（position.zhaimen 约束）" % seq)
+        if bei_gate == "houmen":
+            if seq != jin:
+                raise ValueError("图谱缺陷：后门(houmen)只应设于末进后罩房西北角，"
+                                 "却出现在第 %s 进（position.houmen 约束）" % seq)
+            if jin < 3:
+                raise ValueError("图谱缺陷：后门(houmen)仅在 jin>=3 的末进才可能出现"
+                                 "（后罩房只存在于 jin>=3），当前 jin=%d（position.houmen 约束）" % jin)
+
+    # —— appliedRules.norms 轻量完整性 ——
+    # ④ 第一步即消费 modus；其余 norms 路径缺失由 _norms_get 在 compute_geometry 内逐个报「图谱缺陷」，
+    # 此处只做最外层闸门，避免与 _norms_get 路径重复（防两处表达漂移）。
+    norms = (instance.get("appliedRules") or {}).get("norms") or {}
+    if "modus" not in norms:
+        raise ValueError("图谱缺陷：instance.appliedRules.norms.modus 缺失（④ 布局第一步即消费）")
+
+    return True
 
 
 def compute_geometry(instance):

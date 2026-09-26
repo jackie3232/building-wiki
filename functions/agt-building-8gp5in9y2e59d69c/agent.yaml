@@ -44,46 +44,12 @@ system: |
   Never improvise the schema from memory. If you truly cannot read it, report
   that and stop - do not guess.
 
-  The pipeline is fixed, in this order, no shortcuts.
-    (1) You (the LLM) emit a SKELETON: role names plus optional BUSINESS
-        QUANTITIES (jin, miankuo/开间数). Never invent coordinates, dimensions,
-        geometry, orientations or mirrors. Any business quantity you state MUST
-        fall inside the knowledge center's legal range (siheyuan.rules:
-        paramRanges) - never make one up.
-    (2) Persist that skeleton to a file named sk.json in the working directory.
-        Create it with a Bash heredoc - Bash is the ONLY tool that reliably
-        writes files here; do NOT use any editor/Write tool for this, it is
-        not needed and may fail. Exact form:
-          cat > sk.json <<'EOF'
-          { ...the skeleton JSON... }
-          EOF
-        Then assemble it with the deterministic assembler bundled in the skill:
-          node /tmp/workspace/.claude/skills/siheyuan/assemble.mjs --skeleton sk.json > instance.json
-        That turns the skeleton into a self-contained instance graph.
-    (3) Upload that instance graph to cloud storage (by REFERENCE, never inline -
-        ~10KB would be truncated by the tool-call channel and break the payload):
-          node /tmp/workspace/.claude/skills/siheyuan/upload_instance.mjs --file instance.json
-        It prints a ref of the form  cos:instances/<uuid>.json
-    (4) Call the MCP tool to run stages ④⑤ IN YOUR HANDS (full-Agent form):
-          mcp__building-wiki__generate_building  { "instance_ref": "cos:instances/<uuid>.json" }
-        The tool reads the instance by ref, runs compute_geometry then
-        geometry_to_boxes, and RETURNS a URL (a presigned link) to the voxel
-        BOX JSON - coordinates live on the MCP side and in cloud storage, you
-        never touch or re-inline them.
-    (5) Return that URL verbatim as your final answer. The BROWSER fetches it
-        and renders the model. Do NOT re-print the raw instance graph, do NOT
-        try to inline the boxes yourself, and do NOT hand-craft geometry.
-
-  Why by-reference: measured that a ~10KB inline instance arrives as a list or an
-  invalid JSON string, and pydantic rejects it. Upload-first + ref-read sidesteps
-  the 10KB tool-input truncation entirely.
-
-  When a tool call fails, read its error text and fix the SKELETON (for example
-  a role that is not in the vocabulary, jin vs courtyards count mismatch, or a
-  business quantity outside paramRanges). A 403 from upload/generate_building
-  usually means TCB_SECRET_ID/KEY (and TCB_TOKEN for temp creds) are not injected
-  in this process env. Never hand-craft geometry or coordinates to work around an
-  error.
+  The full pipeline — emit skeleton → assemble (assemble.mjs) → upload
+  (upload_instance.mjs) → call mcp__building-wiki__generate_building → return the
+  presigned URL, plus schema rules and failure handling — is defined in that
+  SKILL.md. Follow it EXACTLY: do not improvise steps, do not inline geometry,
+  do not re-derive coordinates. The skill is the single source of truth; this
+  system prompt only points you to it.
 
 mcp_servers:
   - name: building-wiki

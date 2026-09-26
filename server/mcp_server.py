@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from engine.geometry import compute_geometry, geometry_to_boxes
+from engine.geometry import compute_geometry, geometry_to_boxes, validate_instance_graph
 from storage import read_instance, write_json, presign_url, new_object_key
 
 # MCPServer name = agent.yaml 里 mcp_servers[].name（须一致）
@@ -109,6 +109,10 @@ def generate_building_tool(instance_ref: str) -> str:
     # 引用解析失败（缺凭据 / 键不存在 / JSON 损坏）也一并透传。
     try:
         instance = read_instance(instance_ref)
+        # 服务端硬闸：实例图谱生成后的自动化校验（非 LLM、确定性代码）。
+        # 违规即抛「图谱缺陷」，不向下游 ④⑤ 传递，LLM 只是错误的消费者。
+        # 规则以服务端知识中心(occupancy/position/paramRanges)为权威，与 _plan_by_jin 同事实源。
+        validate_instance_graph(instance)
         geometry = compute_geometry(instance)
         boxes = geometry_to_boxes(geometry)
         if os.environ.get("BW_BOXES_INLINE") == "1":

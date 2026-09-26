@@ -12,7 +12,7 @@ description: 把用户对北京四合院的自然语言需求，转成「实例�
    │
    ├─ 你（LLM）：只产「骨架」——纯 role + 业务量，零坐标/几何量
    │        ↓
-   ├─ assemble.mjs（确定性查表装配）：骨架 → 自包含实例图谱
+   ├─ assemble.mjs（确定性查表装配，含实例图谱硬闸：四至/门位违规即时报错）：骨架 → 自包含实例图谱
    │        ↓
    ├─ upload_instance.mjs：实例 → cos:instances/<uuid>.json（上传云存储）
    │        ↓
@@ -121,6 +121,18 @@ node .claude/skills/siheyuan/upload_instance.mjs --file instance.json
 （已实测：参数到达时变成 list 或非法 JSON 字符串，pydantic 直接拒）。所以先上传拿
 `cos:` 引用、再让 `generate_building` 按引用读回——绕开这条 10KB 通道。
 
-**出错时不要自己编几何/坐标**——那是踩红线。把 `generate_building` 的原始报错读回来，
-检查是不是骨架不合法（role 不在词表 / jin 与 courtyards 数量不符），改骨架重跑装配+上传+调用。
+**出错时不要自己编几何/坐标**——那是踩红线。实例图谱现在有两道**自动化硬闸**（确定性代码、不靠你判断），
+报错一律以「图谱缺陷：…」开头，且**精确点名哪进 / 哪侧 / 哪个角色违规**，照着改骨架即可：
+
+- **第一道（assemble.mjs 装配出口）**：装配完立刻校验「四至构成(occupancy) + 门位(position) + 词表 + 值域」。
+  违规在本地 fail-fast，省掉后面 55s 的 MCP 往返。
+- **第二道（generate_building 读回实例后）**：服务端用同一契约再校验一次，把不合规图谱挡在 ④⑤ 之前。
+
+常见「图谱缺陷」与改法：
+- `第 k 进 四至「bei」应为 zhengfang，实际为 …（occupancy.xxx 约束）` → 该进四至构成错，回去读 `occupancy` 里 k 命中的那条规则。
+- `垂花门(二门)只应设于首进北界` / `后门(houmen)只应设于末进…` → 门位违反 `position`；**后门默认不设**，仅用户明说「宅后临街」才加。
+- `角色 … 不在合法词表` → role 拼错或杜撰，改回 `dict.json「空间角色」`里的 key。
+- `jin=N 超出 paramRanges.jin 值域` → 进数超范围（当前上限 4）。
+
+把 `图谱缺陷` 原文读回来，改骨架 → 重跑 `assemble.mjs` → 上传 → 调 `generate_building`。
 临时凭据报 403 时，确认 `TCB_TOKEN` 已注入（同进程 env）。

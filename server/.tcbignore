@@ -1,0 +1,35 @@
+# ============================================================================
+# tcb 上传忽略清单（cloudrun 源码部署 targetPath=server/ 时生效）
+# ----------------------------------------------------------------------------
+# 只影响「上传给云构建机的源码包」，不影响运行时行为。
+# 与 .dockerignore 同源：镜像只 COPY 这几项 ——
+#   requirements.txt / app.py / mcp_server.py / storage.py / engine / knowledge / data
+# 本地虚拟环境 .venv* 与 __pycache__ 在构建机由 pip install 重建，绝不上传
+# （否则 75MB+ 上传会拖垮 tcb cloudrun deploy 的上传步骤，导致构建记录都生成不了）。
+# ============================================================================
+
+# —— Python 缓存 ——
+__pycache__/
+*.pyc
+
+# —— 本地虚拟环境（通配覆盖 .venv / .venv_fresh / .venv_repro_* 等）——
+.venv*
+
+# —— VCS / 系统杂项 ——
+.git/
+.DS_Store
+
+# —— 本地探针与验证脚本 / 临时输出（只在开发机上跑）——
+/_*.py
+/*_out.txt
+
+# —— 日志 ——
+*.log
+
+# —— 上传的临时图谱 / 备份 ——
+data/_up_*.json
+data/*.bak
+data/_verify_*.py
+
+# —— 引擎镜像树：构建只需要源码 ——
+engine/build/
