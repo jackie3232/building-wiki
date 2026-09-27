@@ -4,7 +4,7 @@
  * ============================================================
  * 职责：LLM 骨架（纯 role + 业务量） -> 自包含实例图谱。
  *
- * 这是 server/engine/geometry.py 里 assemble_instance 及其装配段的
+ * 这是 server/engine/intelligence.py 里 assemble_instance 及其装配段的
  * **忠实移植**（同一契约、同一产物）。移植目标不是「把 Python 搬过来」，
  * 而是让智能化层以 Agent 的原生形态存在（Agent 运行时 = @anthropic-ai/claude-agent-sdk / Node）。
  *
@@ -20,9 +20,9 @@
  * 面阔/进深/高/台明/等级/材质由本脚本查知识中心补。
  *
  * 用法：
- *   node assemble.mjs --knowledge <dir> --skeleton <file.json>   # 输出图谱 JSON 到 stdout
- *   或： cat skeleton.json | node assemble.mjs --knowledge <dir>
- *   默认 --knowledge 取脚本同目录下的 ./knowledge。
+ *   node assemble.mjs --style <style> --skeleton <file.json>   # 输出图谱 JSON 到 stdout
+ *   或： cat skeleton.json | node assemble.mjs --style <style>
+ *   默认 --style=siheyuan，--packs 取脚本同目录下的 ./packs（约定优于配置：packs/<style>/）。
  *
  * 零漂移：与 Python assemble_instance 逐字段深比对（见 _verify_port.py）。
  */
@@ -53,11 +53,14 @@ function loadJson(p) {
 
 // ---------------- 知识中心 ----------------
 
-/** 读知识中心三件套（rules / type / dict）。与 Python _load_knowledge 同契约。 */
-function loadKnowledge(dir) {
+/** 读知识包三件套（rules / type / dict）。与 Python _load_knowledge 同契约。
+ *  style = 包目录名：packs/<style>/{<style>.rules, <style>.type.json, dict.json}
+ *  约定优于配置——新增风格只需在 packs/ 下加一个目录，引擎零改动。 */
+function loadKnowledge(style, baseDir = path.join(HERE, "packs")) {
+  const dir = path.join(baseDir, style);
   return {
-    rules: loadJson(path.join(dir, "siheyuan.rules")),
-    type: loadJson(path.join(dir, "siheyuan.type.json")),
+    rules: loadJson(path.join(dir, `${style}.rules`)),
+    type: loadJson(path.join(dir, `${style}.type.json`)),
     dict: loadJson(path.join(dir, "dict.json")),
   };
 }
@@ -78,7 +81,7 @@ function keepSubtree(src, prefix) {
 function snapshotRules(rulesDoc) {
   const full = rulesDoc?.norms ?? {};
   if (full === null || typeof full !== "object" || Array.isArray(full) || !("modus" in full)) {
-    throw new Error("图谱缺陷：siheyuan.rules 缺少 norms.modus");
+    throw new Error("图谱缺陷：规则库缺少 norms.modus");
   }
   const trimmed = {};
   for (const prefix of NORMS_KEEP_PREFIXES) {
@@ -222,7 +225,7 @@ function validatePlan(plan, { rules, type, dict }) {
   }
   const rng = rules?.paramRanges?.jin?.range;
   if (!Array.isArray(rng) || rng.length !== 2) {
-    throw new Error("图谱缺陷：siheyuan.rules 缺少 paramRanges.jin.range（值域未声明）");
+    throw new Error("图谱缺陷：规则库缺少 paramRanges.jin.range（值域未声明）");
   }
   const [lo, hi] = rng;
   if (jin < lo || jin > hi) {
@@ -273,7 +276,7 @@ function courtNamer(rulesDoc, dictDoc) {
   const rules = naming.rules ?? [];
   const fallback = naming.fallback ?? {};
   if (!rules.length || !Object.keys(fallback).length) {
-    throw new Error("图谱缺陷：siheyuan.rules 缺少 sequence.naming.rules / .fallback");
+    throw new Error("图谱缺陷：规则库缺少 sequence.naming.rules / .fallback");
   }
   const lbl = (key) => {
     for (const cat of ["院落", "空间角色"]) {
@@ -314,7 +317,7 @@ function jinCondOk(cond, jin) {
 }
 
 /** 装配收尾：omit 裁剪 -> usage 标注 -> 院角色判定 -> ring 声明 -> 打包附属知识。纯机械，零推理。 */
-function finish(jin, courtyards, rulesDoc, dictDoc, omit = null) {
+function finish(jin, courtyards, rulesDoc, dictDoc, omit = null, style = "siheyuan") {
   const omitSet = new Set(omit ?? []);
   for (const c of courtyards) {
     const enc = c.enclosure ?? {};
@@ -398,17 +401,19 @@ function finish(jin, courtyards, rulesDoc, dictDoc, omit = null) {
     };
   }
 
-  return wrap(jin, courtyards, rulesDoc, dictDoc);
+  return wrap(jin, courtyards, rulesDoc, dictDoc, style);
 }
 
-/** instance = data（实例图谱）+ appliedDict / appliedRules（用到的附属知识，知识中心的按需子集）。 */
-function wrap(jin, courtyards, rulesDoc, dictDoc, generatedBy = "assemble.mjs (skill siheyuan)") {
-  const data = { type: "siheyuan", jin, courtyards };
+/** instance = data（实例图谱）+ appliedDict / appliedRules（用到的附属知识，知识中心的按需子集）。
+ *  style 即知识包标识（packs/<style>/），写进 instance 供 ④⑤ / 校验器按包取知识。 */
+function wrap(jin, courtyards, rulesDoc, dictDoc, style = "siheyuan", generatedBy = "assemble.mjs (skill traditional-building)") {
+  const data = { type: style, jin, courtyards };
   const rulesSnap = snapshotRules(rulesDoc);
   const inst = {
+    style,
     meta: {
-      type: "siheyuan",
-      desc: `北京${jin}进四合院实例（由类型图谱+规则库合成，工程文件·自包含）`,
+      type: style,
+      desc: `${style} ${jin}进实例（由类型图谱+规则库合成，工程文件·自包含）`,
       generatedBy,
       zeroCoord: true,
     },
@@ -431,7 +436,7 @@ function wrap(jin, courtyards, rulesDoc, dictDoc, generatedBy = "assemble.mjs (s
 function occupancyRules(rulesDoc) {
   const occ = rulesDoc?.occupancy?.rules ?? null;
   if (!Array.isArray(occ) || occ.length === 0) {
-    throw new Error("图谱缺陷：siheyuan.rules 缺少 occupancy.rules（院落四至默认构成）");
+    throw new Error("图谱缺陷：规则库缺少 occupancy.rules（院落四至默认构成）");
   }
   return occ;
 }
@@ -638,8 +643,9 @@ export function validateInstanceGraph(instance, rulesDoc, typeDoc, dictDoc) {
  * - 院名不取自骨架，由 sequence.naming 规则推导（命名权归图谱，不归 LLM）。
  * - 收尾与确定性基线共用 finish，故形状必然一致。
  */
-export function assembleInstance(plan, knowledgeDir, opts = {}) {
-  const { rules, type, dict } = loadKnowledge(knowledgeDir);
+export function assembleInstance(plan, packsRoot, opts = {}) {
+  const style = opts.style || plan.style || "siheyuan";
+  const { rules, type, dict } = loadKnowledge(style, packsRoot);
   const norms = rules.norms ?? {};
   const courtName = courtNamer(rules, dict);
 
@@ -680,7 +686,7 @@ export function assembleInstance(plan, knowledgeDir, opts = {}) {
     courtyards.push(c);
   });
 
-  const inst = finish(jin, courtyards, rules, dict, opts.omit ?? null);
+  const inst = finish(jin, courtyards, rules, dict, opts.omit ?? null, style);
   // 装配出口硬闸：实例图谱 regime 校验（occupancy + position）。不过即抛错，
   // 使 Agent 在调 generate_building(55s MCP) 前 fail-fast；与 Python 端 generate_building
   // 读回后的硬闸同契约、同事实源，两端双重保险。
@@ -691,9 +697,10 @@ export function assembleInstance(plan, knowledgeDir, opts = {}) {
 // ---------------- CLI ----------------
 
 function parseArgs(argv) {
-  const out = { knowledge: path.join(HERE, "knowledge"), skeleton: null };
+  const out = { packs: path.join(HERE, "packs"), skeleton: null, style: null, omit: null };
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === "--knowledge") out.knowledge = argv[++i];
+    if (argv[i] === "--packs") out.packs = argv[++i];
+    else if (argv[i] === "--style") out.style = argv[++i];
     else if (argv[i] === "--skeleton") out.skeleton = argv[++i];
     else if (argv[i] === "--omit") out.omit = argv[++i].split(",").filter(Boolean);
   }
@@ -709,7 +716,7 @@ function main() {
     raw = fs.readFileSync(0, "utf-8"); // stdin
   }
   const plan = JSON.parse(raw);
-  const inst = assembleInstance(plan, args.knowledge, { omit: args.omit ?? null });
+  const inst = assembleInstance(plan, args.packs, { style: args.style, omit: args.omit ?? null });
   process.stdout.write(JSON.stringify(inst, null, 2));
 }
 

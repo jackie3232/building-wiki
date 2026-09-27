@@ -4,7 +4,7 @@
  * ============================================================
  * 职责：LLM 骨架（纯 role + 业务量） -> 自包含实例图谱。
  *
- * 这是 server/engine/geometry.py 里 assemble_instance 及其装配段的
+ * 这是 server/engine/intelligence.py 里 assemble_instance 及其装配段的
  * **忠实移植**（同一契约、同一产物）。移植目标不是「把 Python 搬过来」，
  * 而是让智能化层以 Agent 的原生形态存在（Agent 运行时 = @anthropic-ai/claude-agent-sdk / Node）。
  *

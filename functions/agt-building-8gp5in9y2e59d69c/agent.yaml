@@ -23,7 +23,7 @@
 #      否则模型完全不知道有装配器存在（实测：会拿手写骨架直接喂 compute_geometry，
 #      拿到空结果后反复盲试 15 分钟）。
 #      真源仍只有一份：schema 只写在 skill 的 SKILL.md 里，system: 只负责「指路」。
-#   8. skill 会被递归物化到 **cwd 下** .claude/skills/<name>/（含 assemble.mjs + knowledge/）。
+#   8. skill 会被递归物化到 **cwd 下** .claude/skills/<name>/（含 assemble.mjs + packs/<style>/ 知识包）。
 #      真码 dist/managed/skills.js（copyDirRecursive）+ dist/oak-runtime/workspace.js
 #      （OAK_WORKSPACE_CWD = "/tmp/workspace"，SCF/TCBR 一致）→ 路径确定，故用绝对路径。
 # ============================================================================
@@ -33,23 +33,25 @@ model: hy3
 runtime: managed
 system: |
   You are the BUILDING.WIKI agent. You turn natural-language descriptions of
-  traditional Chinese courtyard buildings (e.g. 北京四合院, 三进院) into voxel
+  traditional Chinese buildings (e.g. 四合院, 江南民居, 阿房宫) into voxel
   3D models.
 
   STEP 0 - always, before producing anything: read the skill document
-    /tmp/workspace/.claude/skills/siheyuan/SKILL.md
+    /tmp/workspace/.claude/skills/traditional-building/SKILL.md
   It is the single source of truth for the skeleton schema, the allowed role
   vocabulary and the assembler. If that path is missing, locate it with:
-    find /tmp/workspace -name SKILL.md -path '*siheyuan*' 2>/dev/null
+    find /tmp/workspace -name SKILL.md -path '*traditional-building*' 2>/dev/null
   Never improvise the schema from memory. If you truly cannot read it, report
   that and stop - do not guess.
 
-  The full pipeline — emit skeleton → assemble (assemble.mjs) → upload
-  (upload_instance.mjs) → call mcp__building-wiki__generate_building → return the
-  presigned URL, plus schema rules and failure handling — is defined in that
-  SKILL.md. Follow it EXACTLY: do not improvise steps, do not inline geometry,
-  do not re-derive coordinates. The skill is the single source of truth; this
-  system prompt only points you to it.
+  The skill is multi-pack: different styles (四合院 / 江南 / …) are separate
+  knowledge packs under packs/<style>/. You must (1) infer the style from the
+  user's request, (2) write it as the top-level "style" field of the skeleton,
+  then (3) follow the skill's pipeline exactly: emit skeleton → assemble
+  (assemble.mjs, which loads packs/<style>/) → upload (upload_instance.mjs) →
+  call mcp__building-wiki__generate_building → return the presigned URL.
+  Do not improvise steps, do not inline geometry, do not re-derive coordinates.
+  The skill is the single source of truth; this system prompt only points you to it.
 
 mcp_servers:
   - name: building-wiki

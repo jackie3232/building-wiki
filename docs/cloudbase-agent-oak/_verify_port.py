@@ -15,14 +15,14 @@ import tempfile
 ROOT = r"D:\sourcecodes\building.wiki"
 SERVER = os.path.join(ROOT, "server")
 SKILL = os.path.join(ROOT, "docs", "cloudbase-agent-oak", "skill", "skills", "siheyuan")
-KNOWLEDGE = os.path.join(SERVER, "knowledge")
+KNOWLEDGE = os.path.join(SERVER, "packs")
 # 可选：第一个位置参数指定知识中心目录（用于验证打包后的 skill 自足）
 if len(sys.argv) > 1 and not sys.argv[1].startswith("-"):
     KNOWLEDGE = os.path.abspath(sys.argv[1])
 NODE = r"C:\Users\jackie\.workbuddy\binaries\node\versions\22.22.2-3\node.exe"
 
 sys.path.insert(0, SERVER)
-from engine.geometry import build_instance, assemble_instance, skeleton_of  # noqa: E402
+from engine.intelligence import build_instance, assemble_instance, skeleton_of  # noqa: E402
 
 
 def normalize(o, path=""):

@@ -13,7 +13,7 @@
 #    app.py              → /app/app.py         (纯 MCP 宿主)
 #    mcp_server.py       → /app/mcp_server.py  (ping / compute_geometry / geometry_to_boxes)
 #    engine/             → /app/engine/        (④⑤ 计算引擎，纯 Python)
-#    knowledge/          → /app/knowledge/     (dict/type/rules；⑤ label 与 ① 基线用)
+#    packs/              → /app/packs/         (知识包：packs/<style>/{dict,type,rules}；⑤ label 与 ① 基线用)
 #    data/               → /app/data/          (instances 实例工程文件)
 # ===========================================================================
 
@@ -33,7 +33,7 @@ COPY app.py .
 COPY mcp_server.py .
 COPY storage.py .
 COPY engine ./engine
-COPY knowledge ./knowledge
+COPY packs ./packs
 COPY data ./data
 
 EXPOSE 80
