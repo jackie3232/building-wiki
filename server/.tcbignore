@@ -3,7 +3,8 @@
 # ----------------------------------------------------------------------------
 # 只影响「上传给云构建机的源码包」，不影响运行时行为。
 # 与 .dockerignore 同源：镜像只 COPY 这几项 ——
-#   requirements.txt / app.py / mcp_server.py / storage.py / engine / knowledge / data
+#   requirements.txt / app.py / mcp_server.py / storage.py / engine / data
+# （知识包不进容器：其唯一权威源在函数端 Skill 目录；服务端只吃实例图谱自带的快照。）
 # 本地虚拟环境 .venv* 与 __pycache__ 在构建机由 pip install 重建，绝不上传
 # （否则 75MB+ 上传会拖垮 tcb cloudrun deploy 的上传步骤，导致构建记录都生成不了）。
 # ============================================================================

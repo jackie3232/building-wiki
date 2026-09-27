@@ -91,56 +91,6 @@
   ],
   "position": [
     {
-      "role": "zhengfang",
-      "at": "zhongzhou_north",
-      "constraint": "juzhong",
-      "ref": [
-        "zhongzhou",
-        "juzhong"
-      ],
-      "desc": "正房居中、位于中轴北端"
-    },
-    {
-      "role": "xiangfang",
-      "at": [
-        "dong",
-        "xi"
-      ],
-      "constraint": "duichen",
-      "ref": [
-        "dong",
-        "xi",
-        "duichen"
-      ],
-      "desc": "厢房东西对称"
-    },
-    {
-      "role": "daozuofang",
-      "at": "nan_end",
-      "desc": "倒座房位于院落最南"
-    },
-    {
-      "role": "chuihuamen",
-      "between": [
-        "一进",
-        "二进"
-      ],
-      "at": "kaziqiang_center",
-      "constraint": "zhongzhou",
-      "ref": [
-        "chuihuamen",
-        "kaziqiang",
-        "zhongzhou"
-      ],
-      "desc": "垂花门仅设于卡子墙正中、中轴线，分隔一进(外院)与二进(内院)；二进→三进不设独立门楼"
-    },
-    {
-      "role": "houzhaofang",
-      "at": "north_of_zhengfang",
-      "ref": "houzhaofang",
-      "desc": "后罩房位于正房之后"
-    },
-    {
       "role": "chuantang",
       "at": "zhengfang_mingjian",
       "when": "jin>=3",
@@ -152,16 +102,9 @@
       "desc": "三进时内院正房明间(中央开间)做穿堂，南北开门连通后院；备选为东耳房尽端夹道"
     },
     {
-      "role": "zhaimen",
-      "attachedTo": "daozuofang_east",
-      "at": "southeast_corner",
-      "ref": "zhaimen",
-      "desc": "大门位于倒座房东端、院落东南角(坎宅巽门)"
-    },
-    {
       "role": "houmen",
-      "attachedTo": "houzhaofang_west",
-      "at": "northwest_corner",
+      "mount": "bei.gate",
+      "court": "last",
       "when": "jin>=3",
       "byDefault": false,
       "trigger": "宅后临街",
@@ -548,8 +491,7 @@
       "desc": "每院四侧先有墙基底（纯围墙基线）；provider=建筑时该侧由建筑后檐墙分段实现(替换，不另画独立墙)；provider=null时画独立院墙(yuanqiang)，与相邻建筑后檐墙共线；门(gate)在段上开缺"
     }
   },
-  "__generated__": {
-    "source": "server/knowledge/siheyuan.rules",
-    "note": "生成物，勿手改；改动请改源后重跑 _sync_knowledge.py"
+  "__source_of_truth__": {
+    "note": "唯一权威源：知识包只此一份（函数端 Skill 的 packs/），直接编辑此处；服务端④⑤/硬闸只引用实例图谱自带的 appliedRules/appliedDict 快照，不回读本文件。"
   }
 }

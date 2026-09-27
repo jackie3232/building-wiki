@@ -44,10 +44,6 @@
       "label": "耳房",
       "desc": "主屋两侧接出的小屋"
     },
-    "tingyuan": {
-      "label": "庭院",
-      "desc": "由房屋围合出的露天院落"
-    },
     "chuihuamen": {
       "label": "垂花门",
       "desc": "分隔外院与内院的内门，装饰性"
@@ -101,6 +97,10 @@
     }
   },
   "院落": {
+    "tingyuan": {
+      "label": "庭院",
+      "desc": "由房屋围合出的露天院落。一进院时院角色取此名（既入口院又是主院、无独立院名）。"
+    },
     "waiyuan": {
       "label": "外院",
       "alias": [
@@ -320,8 +320,7 @@
       "desc": "前后开门、可供人穿行通过的厅堂（汉典·国语辞典）。四进院中位于第二进院正位，作「前堂」；其北三进院正位为正房，构成「前堂后寝」。权威原文即作「正房或过厅」——故它是正房的一种用途，不是另一种建筑，role 仍为 zhengfang。与 chuantang 的分工：guoting＝这座房的**用途**（usage 字段），chuantang＝明间贯通的**构造做法**（chuantang 布尔字段）；同一座正房可同时具备两者，两者都不是独立的门。"
     }
   },
-  "__generated__": {
-    "source": "server/knowledge/dict.json",
-    "note": "生成物，勿手改；改动请改源后重跑 _sync_knowledge.py"
+  "__source_of_truth__": {
+    "note": "唯一权威源：知识包只此一份（函数端 Skill 的 packs/），直接编辑此处；服务端④⑤/硬闸只引用实例图谱自带的 appliedRules/appliedDict 快照，不回读本文件。"
   }
 }

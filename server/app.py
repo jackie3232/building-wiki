@@ -4,7 +4,7 @@ BUILDING.WIKI · MVP 2.0 服务（Starlette ASGI）
 本容器 = **纯 MCP 引擎出口**（2.0 唯一职责）。
 
   /mcp  -> 官方 mcp SDK Streamable HTTP（stateless）
-            工具：ping / compute_geometry / geometry_to_boxes
+            工具：ping / generate_building
 
 为什么只剩 /mcp（2026-09-22 决策：全线 2.0，1.0 下线）
 ------------------------------------------------------------

@@ -78,7 +78,8 @@ description: 把用户对中国传统建筑的自然语言需求（四合院 / �
 
 - `occupancy` —— **院落四至默认构成**：「每一进，哪一侧放什么角色」的**唯一事实源**。
   **出骨架前逐字读完**。逐条按 `at`（`1`=首进 / `"middle"`=中间进 / `"last"`=末进）+ `jinEq` / `jinGte` 命中，首个命中者胜出。
-- `position` —— 各构件的**位置约束**（垂花门只在一↔二进之间；后罩房只在末进；宅门只在首院倒座；后门默认不设，仅用户明说「宅后临街」才加）
+- `position` —— **补充约束**（只放 `occupancy` 装不下的）：后门默认不设，仅用户明说「宅后临街」才加；穿堂仅 jin≥3 时由正房明间做。
+  门位与四至构成的事实源都在上面 `occupancy` 段，此处不再重复。
 - `orientation` —— 朝向
 - `usage` —— 用途（如四进院第二进正位房作过厅）
 - `sequence.naming` —— 院名推导规则
@@ -95,6 +96,15 @@ node .claude/skills/traditional-building/assemble.mjs --style siheyuan --skeleto
 node .claude/skills/traditional-building/assemble.mjs --skeleton sk.json > instance.json
 # 也支持 stdin：cat sk.json | node .claude/skills/traditional-building/assemble.mjs --style siheyuan
 ```
+
+### CLI 只认三个参数
+
+`--packs`（默认脚本同目录 `packs/`）、`--style`（默认取骨架 `style`）、`--skeleton`。
+**传别的参数一律报错**（不静默忽略）——所以别自造开关。
+
+**变体靠骨架表达，不靠命令行**：用户说「不要影壁」，就把它从该进的 `peripheral` 里去掉；
+说「外院不要厢房」这类**违反规制**的要求，不要靠删字段凑——它会被装配出口硬闸按 `occupancy` 拒掉，
+应改为如实告知用户该形制不合外院规制。
 
 若路径不确定，先定位脚本：`find . -name assemble.mjs -path '*traditional-building*'`。
 
@@ -119,8 +129,10 @@ node .claude/skills/traditional-building/upload_instance.mjs --file instance.jso
 { "instance_ref": "cos:instances/<uuid>.json" }
 ```
 
-它会在 MCP 侧读回实例 → 按 `instance.style` 重载对应知识包 → 跑 ④ compute_geometry → 跑 ⑤ geometry_to_boxes →
-**返回体素 BOX 清单 JSON**（含坐标；harness 对超大输出会持久化为引用返回）。
+它会在 MCP 侧读回实例 → 跑 ④ compute_geometry → 跑 ⑤ geometry_to_boxes →
+**返回体素 BOX 清单**（含坐标；harness 对超大输出会持久化为引用返回）。
+（④⑤ 是这一个工具的内部步骤，MCP 侧不重载知识包——它只吃实例图谱自带的 appliedRules/appliedDict 快照。
+实例图谱的合规硬闸只在你这一侧（装配出口）做一次；MCP 侧只剩 ④ 自带的形状闸，入参不是自包含图谱即报错。）
 把这个结果（或它给的引用）作为你的最终输出即可——**前端会据此渲染**。
 
 **为什么传引用不传值**：实例图谱 ~10KB，若走工具入参通道会被 harness 截断损坏

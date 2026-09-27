@@ -45,11 +45,11 @@ def main():
     p("=== 关键文件 vs 本地暂存（sha256 前 16 位）===")
     checks = [
         "agent.yaml",
-        "skills/siheyuan/SKILL.md",
-        "skills/siheyuan/assemble.mjs",
-        "skills/siheyuan/knowledge/dict.json",
-        "skills/siheyuan/knowledge/siheyuan.rules",
-        "skills/siheyuan/knowledge/siheyuan.type.json",
+        "skills/traditional-building/SKILL.md",
+        "skills/traditional-building/assemble.mjs",
+        "skills/traditional-building/packs/siheyuan/dict.json",
+        "skills/traditional-building/packs/siheyuan/siheyuan.rules",
+        "skills/traditional-building/packs/siheyuan/siheyuan.type.json",
     ]
     allok = True
     for name in checks:

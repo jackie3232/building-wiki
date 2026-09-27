@@ -362,8 +362,7 @@
       }
     }
   },
-  "__generated__": {
-    "source": "server/knowledge/siheyuan.type.json",
-    "note": "生成物，勿手改；改动请改源后重跑 _sync_knowledge.py"
+  "__source_of_truth__": {
+    "note": "唯一权威源：知识包只此一份（函数端 Skill 的 packs/），直接编辑此处；服务端④⑤/硬闸只引用实例图谱自带的 appliedRules/appliedDict 快照，不回读本文件。"
   }
 }

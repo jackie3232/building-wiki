@@ -1,16 +1,16 @@
 """
 ④ 几何计算引擎 + ⑤ 几何造型引擎(BOX 出口)
 ------------------------------------------------
-输入 ：实例图谱工程文件（server/data/instances/*.json）
+输入 ：**自包含实例图谱**。生产路径 = Agent 侧装配后上传云存储，经 MCP
+       generate_building 以 cos:<objectKey> 引用传入（见 storage.read_instance）；
+       本地调试可直接传 dict。
        自包含：data 块为实例数据（拓扑+尺度具体值），appliedRules 为规则快照。
        ④ 只读 instance 整体（data + appliedRules），不碰外部 dict.json / rules.json。
-       ① 基线（engine.intelligence.build_instance）读知识中心（type.json + rules.json）合成 instance，供验证与落库；
-       2.0 在线链路的 ① 归 Agent 侧（LLM 出骨架 → skill 的 assemble 装配），④ 不读外部知识文件。
+       ① 归 Agent 侧（LLM 出骨架 → skill 的 assemble 装配）；本容器不设 ①，④ 不读外部知识文件。
 输出 ：⑤ 体素 BOX 清单（场景坐标：Y-up，单位米）
        每个 box = {x,y,z, w,h,d, role, label, color}
 
 分层（见 几何计算引擎IO契约.md）：
-- build_instance(jin)        = ① 确定性基线（见 engine/intelligence.py）：读 type+rules，按进数合成自包含 instance（供验证/落库）
 - compute_geometry(instance) = ④：instance -> 构件列表（连续几何，绝对坐标，无 color/label）
 - geometry_to_boxes(geo)     = ⑤：构件 -> box 像素网格（选 Box 基元 + 补 label/color）
 - instance_to_boxes(inst)    = 串联 ④->⑤（便捷入口，供本地验证）
@@ -22,15 +22,10 @@
 - 输出是「构件」不是「box」也不是「空间」；构件 : box = 图像 : 像素（box 由 ⑤ 多体素化）。
 - ⑤ 只做造型策略（MVP = 无 B-rep 的 BOX 体素），未来可切 Box/Brep 等基元，不污染 ④。
 """
-import json
 import math
-import os
-import re
 
-BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # server/
-PACKS_DIR = os.path.join(BASE, "packs")                       # 知识包根：packs/<style>/（约定优于配置）
-KNOWLEDGE_DIR = os.path.join(PACKS_DIR, "siheyuan")           # 默认包（向后兼容 _dict_labels 等）
-DATA_DIR = os.path.join(BASE, "data", "instances")
+# 知识包唯一权威源 = 智能端 Skill 目录（functions/.../traditional-building/packs）。
+# 服务端运行时(④⑤/标签)绝不读盘包，只引用实例图谱自带的 appliedRules/appliedDict 快照。
 
 # —— ④ 不在此文件固定任何规制数字 ——
 # 模数 / 房屋高度(等级) / 墙厚 / 门洞 / 门体面阔 / 附属构件尺寸，全部来自
@@ -49,33 +44,36 @@ TOUR_LOOK_DEG = 35            # 驻足"轻扫一眼"的偏转角（度，负=偏
 # 体素边长（米）。越小越细、box 越多；越大越省、体素感越弱。MVP 提速版适中取值。
 VOXEL_SIZE = 0.6
 
-# 中文名一律取自命名字典（dict.json）——⑤ 造型层与巡游路径都不再内置词表。
-# 内置表必然与字典漂移，而且已经漂过一次：houmen 字典里有「后门」、内置表没有，
-# ⑤ 于是把拼音 key 原样吐给前端（屏幕上直接显示 "houmen"）。
-# 表按 dict.json 的 mtime 缓存：本地改字典立即生效，不会出现「改了不生效」的假象。
-_DICT_LABELS = {"mtime": None, "flat": {}}
+# 中文名一律取自命名字典 —— 但 ⑤ 造型层与巡游路径都不再内置词表、也**绝不回读盘上 dict.json**。
+# 自动化端(④⑤)只引用实例图谱自带的 appliedDict 快照（智能端装配时已按需裁剪好的命名子集），
+# 这正是「自动化端不碰知识中心、只引用实例图谱」的分界原则。
+# 历史教训：早年内置表与字典漂移（houmen 字典有「后门」、内置表没有 → 屏幕显示 "houmen"），
+# 故中文名必须且只从实例图谱快照取。
+def _labels_from_applied(applied):
+    """实例 appliedDict(命名字典按需子集) -> 扁平 {key: 中文名}（跨类目合并）。
 
-
-def _dict_labels():
-    """dict.json -> 扁平 {key: 中文名}（跨类目合并；key 全库唯一，已核实无重名）。"""
-    path = os.path.join(KNOWLEDGE_DIR, "dict.json")
-    mt = os.path.getmtime(path)
-    if _DICT_LABELS["mtime"] != mt:
-        flat = {}
-        for cat, items in load_json(path).items():
-            if cat == "meta" or not isinstance(items, dict):
-                continue
-            for k, v in items.items():
-                if isinstance(v, dict) and isinstance(v.get("label"), str):
-                    flat[k] = v["label"]
-        _DICT_LABELS.update(mtime=mt, flat=flat)
-    return _DICT_LABELS["flat"]
+    这是 ⑤ 中文名的唯一来源：自动化端不读知识包，只引用实例图谱自带快照。
+    applied 结构同 dict.json（按类目分组的 {key: {label, ...}}），仅保留用到的词条。
+    """
+    flat = {}
+    if not isinstance(applied, dict):
+        return flat
+    for cat, items in applied.items():
+        if cat == "meta" or not isinstance(items, dict):
+            continue
+        for k, v in items.items():
+            if isinstance(v, dict) and isinstance(v.get("label"), str):
+                flat[k] = v["label"]
+    return flat
 
 
 def _label_of(key, dflt=None, table=None):
     """key -> 中文名（字典为准）。字典缺词条：给了 dflt 就回落，没给则报图谱缺陷
-    —— 不静默把拼音 key 当成中文名吐出去（那正是漂移发生时的表现）。"""
-    hit = (table if table is not None else _dict_labels()).get(key)
+    —— 不静默把拼音 key 当成中文名吐出去（那正是漂移发生时的表现）。
+
+    自动化端不回读盘包：table 须由调用方从 instance.appliedDict 传入（见
+    _labels_from_applied），本函数不再隐式读盘。"""
+    hit = (table or {}).get(key)
     if hit:
         return hit
     if dflt is not None:
@@ -121,53 +119,6 @@ def _role_height(norms, role, spec=None, ctx=""):
     return float(h)
 
 
-def _occupancy_rules(rules_doc):
-    """取 occupancy.rules（院落四至默认构成）；缺失即报图谱缺陷。
-
-    它是「第 k 进哪一侧放什么角色」的唯一事实源；_plan_by_jin 与
-    validate_instance_graph 共用，杜绝「代码一套、规则一套」两处表达漂移。
-    """
-    occ = ((rules_doc.get("occupancy") or {}).get("rules")) or []
-    if not occ:
-        raise ValueError("图谱缺陷：siheyuan.rules 缺少 occupancy.rules"
-                         "（院落四至默认构成 —— 每进哪一侧放什么角色的唯一事实源）")
-    return occ
-
-
-def _occupancy_of(k, jin, occ_rules):
-    """第 k 进的四至规则：按序求值、首个命中者胜出（与 sequence.naming 同律）。"""
-    for r in occ_rules:
-        at = r.get("at")
-        if at == "middle":
-            if not (1 < k < jin):
-                continue
-        elif at == "last":
-            if k != jin:
-                continue
-        elif at != k:
-            continue
-        if "jinEq" in r and jin != r["jinEq"]:
-            continue
-        if "jinGte" in r and jin < r["jinGte"]:
-            continue
-        if "jinLte" in r and jin > r["jinLte"]:
-            continue
-        return r
-    raise ValueError("图谱缺陷：第 %d 进（共 %d 进）在 rules.occupancy 无规则命中" % (k, jin))
-
-
-def _load_knowledge(style="siheyuan"):
-    """读知识中心三件套（rules / type / dict）。
-
-    style 即包目录名：packs/<style>/{<style>.rules, <style>.type.json, dict.json}。
-    约定优于配置——新增风格只需在 packs/ 下加一个目录，引擎零改动。
-    """
-    base = os.path.join(PACKS_DIR, style)
-    return (load_json(os.path.join(base, f"{style}.rules")),
-            load_json(os.path.join(base, f"{style}.type.json")),
-            load_json(os.path.join(base, "dict.json")))
-
-
 def _dim(role_obj, key, default):
     return (role_obj or {}).get(key, default)
 
@@ -176,6 +127,21 @@ def _role_of(obj, default):
     if isinstance(obj, dict):
         return obj.get("role", default)
     return default
+
+
+def _gate_role(node, ctx):
+    """门体 role：节点不存在返回 None；节点在、role 缺 → 报图谱缺陷。
+
+    门的种类事实源是知识包（enclosure.*.gate.role / beimen.role），④ 只回读、不写死常量；
+    缺 role 时静默回落，会让「墙上有门却不开口」这类错误永远看不出来。
+    """
+    if not node:
+        return None
+    r = node.get("role") if isinstance(node, dict) else None
+    if not r:
+        raise ValueError(
+            f"图谱缺陷：{ctx} 声明了门体却缺 role —— 门的种类须由知识包声明")
+    return r
 
 
 def _layout(instance):
@@ -247,182 +213,8 @@ def _graph_data(instance, fn):
         raise ValueError(
             "图谱缺陷：%s 的 data.courtyards 缺失或为空 —— 入参须是**装配后的自包含实例"
             "图谱**（meta/data/appliedRules，建筑声明带数值），不是只写了 role 的骨架；"
-            "骨架请先经装配器（assemble.mjs / assemble_instance）补全数值再调用" % fn)
+            "骨架请先经装配器（skill 的 assemble.mjs）补全数值再调用" % fn)
     return data
-
-
-def validate_instance_graph(instance, rules_doc=None, type_doc=None, dict_doc=None):
-    """实例图谱硬闸：装配出口 + generate_building 读回实例后两处强制调用。
-
-    性质：自动化（确定性代码）、非智能化（不靠 LLM 判断）；违规即抛
-    ValueError("图谱缺陷：…")，不向下游(④⑤)传递。LLM 只是错误的消费者，不是校验者。
-
-    覆盖：结构 / 词表(role 白名单) / 值域(paramRanges) / occupancy+position regime /
-    院落命名(naming) / appliedRules.norms 轻量完整性。
-
-    规则单源：regime 校验经 _occupancy_of 复用 occupancy.rules（与 _plan_by_jin 同一事实源）；
-    position 显式校验复用 rules.position 同一份约束描述。杜绝「代码一套、规则一套」两处表达漂移。
-    """
-    if rules_doc is None or type_doc is None or dict_doc is None:
-        # 未显式传知识包时，从 instance 自身推导风格（packs/<style>/），
-        # 与 ① 装配出口写入的 style/data.type 对齐——单专家多包的核心收口点。
-        style = (instance.get("style")
-                 or (instance.get("data") or {}).get("type")
-                 or "siheyuan")
-        rules_doc, type_doc, dict_doc = _load_knowledge(style)
-
-    # —— 结构 ——
-    if not isinstance(instance, dict):
-        raise ValueError("图谱缺陷：校验器收到非对象 instance（应为自包含实例图谱）")
-    data = instance.get("data", instance)
-    if not isinstance(data, dict):
-        raise ValueError("图谱缺陷：instance.data 须为对象")
-    courtyards = data.get("courtyards")
-    if not isinstance(courtyards, list) or not courtyards:
-        raise ValueError("图谱缺陷：instance.data.courtyards 缺失或为空")
-    jin = data.get("jin")
-    if not isinstance(jin, int) or isinstance(jin, bool) or jin < 1:
-        raise ValueError("图谱缺陷：jin 须为正整数，实际 %r" % (jin,))
-    if len(courtyards) != jin:
-        raise ValueError("图谱缺陷：courtyards 数量 %d 与 jin=%d 不符" % (len(courtyards), jin))
-
-    # sequence 须为 1..jin 且唯一
-    seqs = [c.get("sequence") for c in courtyards]
-    if sorted(seqs) != list(range(1, jin + 1)):
-        raise ValueError("图谱缺陷：courtyards.sequence 须为 1..%d 且唯一，实际 %s" % (jin, seqs))
-
-    # —— 词表（role 白名单）——
-    legal = set((type_doc.get("roles") or {}).keys()) | set((dict_doc.get("空间角色") or {}).keys())
-    used = set()
-    for c in courtyards:
-        enc = c.get("enclosure") or {}
-        for key in ("bei", "nan", "dong", "xi", "beimen", "nanmen"):
-            r = enc.get(key)
-            if isinstance(r, dict) and r.get("role"):
-                used.add(r["role"])
-        for p in (c.get("peripheral") or []):
-            if isinstance(p, dict) and p.get("role"):
-                used.add(p["role"])
-    bad = sorted(used - legal)
-    if bad:
-        raise ValueError("图谱缺陷：实例图谱含未登记角色 %s（不在 type.roles ∪ dict.空间角色 词表内）" % bad)
-
-    # —— 值域（paramRanges）——
-    pr = rules_doc.get("paramRanges") or {}
-    jr = (pr.get("jin") or {}).get("range")
-    if jr and not (jr[0] <= jin <= jr[1]):
-        raise ValueError("图谱缺陷：jin=%d 超出 paramRanges.jin 值域 %s" % (jin, jr))
-    mk_cfg = pr.get("miankuo") or {}
-    _mk_rng = mk_cfg.get("range") or [1, 7]
-    mk_lo, mk_hi = _mk_rng[0], _mk_rng[1]
-    mk_step = mk_cfg.get("step", 2)
-    for c in courtyards:
-        for side in ("bei", "nan", "dong", "xi"):
-            r = (c.get("enclosure") or {}).get(side)
-            mk = r.get("miankuo") if isinstance(r, dict) else None
-            if isinstance(mk, int) and not isinstance(mk, bool):
-                if not (mk_lo <= mk <= mk_hi):
-                    raise ValueError("图谱缺陷：第 %s 进 %s 面阔 miankuo=%d 超出 paramRanges.miankuo 值域 [%d,%d]"
-                                     % (c.get("sequence"), side, mk, mk_lo, mk_hi))
-                if mk_step and (mk - mk_lo) % mk_step != 0:
-                    raise ValueError("图谱缺陷：第 %s 进 %s 面阔 miankuo=%d 须为步长 %d 的奇数序列 %s"
-                                     % (c.get("sequence"), side, mk, mk_step,
-                                        list(range(mk_lo, mk_hi + 1, mk_step))))
-
-    # —— occupancy regime（四至构成）——
-    occ_rules = _occupancy_rules(rules_doc)
-    valid_court_roles = {"waiyuan", "neiyuan", "houzhaoyuan", "tingyuan", "tingfangyuan"}
-    seen_names = set()
-    for c in courtyards:
-        seq = c.get("sequence")
-        enc = c.get("enclosure") or {}
-        rule = _occupancy_of(seq, jin, occ_rules)
-        rid = rule.get("id", "?")
-
-        # 四至角色构成
-        exp_sides = {}
-        for side in ("bei", "nan", "dong", "xi"):
-            spec = (rule.get("sides") or {}).get(side)
-            if spec:
-                exp_sides[side] = spec
-        for side, spec in exp_sides.items():
-            actual = enc.get(side)
-            if not isinstance(actual, dict) or _role_of(actual, None) != spec.get("role"):
-                raise ValueError("图谱缺陷：第 %s 进(共 %d 进) 四至「%s」应为 %s，实际为 %s"
-                                 "（occupancy.%s 约束）"
-                                 % (seq, jin, side, spec.get("role"), _role_of(actual, None), rid))
-            # 该侧所嵌门（如倒座房上的宅门）角色须一致；规则未声明门时，仅允许
-            # position 显式允许的附加门（后门 houmen 只挂末进北房，由下方 position 校验把关）。
-            exp_gate = (spec.get("gate") or {}).get("role")
-            ag = actual.get("gate")
-            act_gate = ag.get("role") if isinstance(ag, dict) else None
-            if exp_gate is not None and exp_gate != act_gate:
-                raise ValueError("图谱缺陷：第 %s 进 四至「%s」所嵌门应为 %s，实际为 %s"
-                                 "（occupancy.%s 约束）" % (seq, side, exp_gate, act_gate, rid))
-            if exp_gate is None and act_gate is not None and act_gate != "houmen":
-                raise ValueError("图谱缺陷：第 %s 进 四至「%s」按 occupancy.%s 不应嵌门，"
-                                 "实际嵌了 %s" % (seq, side, rid, act_gate))
-        # 不该有的侧必须为空
-        for side in ("bei", "nan", "dong", "xi"):
-            if side not in exp_sides and enc.get(side) is not None:
-                raise ValueError("图谱缺陷：第 %s 进 四至「%s」按 occupancy.%s 不应有建筑，"
-                                 "实际存在 %s" % (seq, side, rid, _role_of(enc.get(side), None)))
-        # beimen（卡子墙门本体）
-        exp_beimen = (rule.get("beimen") or {}).get("role")
-        if _role_of(enc.get("beimen"), None) != exp_beimen:
-            raise ValueError("图谱缺陷：第 %s 进 beimen 应为 %s，实际为 %s（occupancy.%s 约束）"
-                             % (seq, exp_beimen, _role_of(enc.get("beimen"), None), rid))
-        # peripheral（附属）
-        exp_per = set(p.get("role") for p in (rule.get("peripheral") or []) if isinstance(p, dict))
-        act_per = set(p.get("role") for p in (c.get("peripheral") or []) if isinstance(p, dict))
-        if exp_per != act_per:
-            raise ValueError("图谱缺陷：第 %s 进 peripheral 应为 %s，实际为 %s（occupancy.%s 约束）"
-                             % (seq, sorted(exp_per), sorted(act_per), rid))
-        # perimeter（院墙环基线）
-        if bool(rule.get("perimeter")) != bool(c.get("perimeter")):
-            raise ValueError("图谱缺陷：第 %s 进 perimeter 应为 %s，实际为 %s（occupancy.%s 约束）"
-                             % (seq, bool(rule.get("perimeter")), bool(c.get("perimeter")), rid))
-
-        # 院落命名（naming）轻量校验
-        name = c.get("name")
-        if not isinstance(name, str) or not name.strip():
-            raise ValueError("图谱缺陷：第 %s 进 院名为空（sequence.naming 推导失败）" % seq)
-        if name in seen_names:
-            raise ValueError("图谱缺陷：院名「%s」重复（sequence.naming 须唯一）" % name)
-        seen_names.add(name)
-        cr = c.get("role")
-        if cr is not None and cr not in valid_court_roles:
-            raise ValueError("图谱缺陷：院落角色 %r 非法（须为 %s）" % (cr, sorted(valid_court_roles)))
-
-    # —— position 显式校验（门的特殊位置语义）——
-    for c in courtyards:
-        seq = c.get("sequence")
-        enc = c.get("enclosure") or {}
-        beimen_role = _role_of(enc.get("beimen"), None)
-        nan_gate = ((enc.get("nan") or {}).get("gate") or {}).get("role")
-        bei_gate = ((enc.get("bei") or {}).get("gate") or {}).get("role")
-        if beimen_role == "chuihuamen" and not (seq == 1 and jin >= 2):
-            raise ValueError("图谱缺陷：垂花门(二门)只应设于首进北界(k=1, jin>=2)，"
-                             "却出现在第 %s 进（position.chuihuamen 约束）" % seq)
-        if nan_gate == "zhaimen" and seq != 1:
-            raise ValueError("图谱缺陷：宅门(zhaimen)只应嵌于首进倒座房东南角，"
-                             "却出现在第 %s 进（position.zhaimen 约束）" % seq)
-        if bei_gate == "houmen":
-            if seq != jin:
-                raise ValueError("图谱缺陷：后门(houmen)只应设于末进后罩房西北角，"
-                                 "却出现在第 %s 进（position.houmen 约束）" % seq)
-            if jin < 3:
-                raise ValueError("图谱缺陷：后门(houmen)仅在 jin>=3 的末进才可能出现"
-                                 "（后罩房只存在于 jin>=3），当前 jin=%d（position.houmen 约束）" % jin)
-
-    # —— appliedRules.norms 轻量完整性 ——
-    # ④ 第一步即消费 modus；其余 norms 路径缺失由 _norms_get 在 compute_geometry 内逐个报「图谱缺陷」，
-    # 此处只做最外层闸门，避免与 _norms_get 路径重复（防两处表达漂移）。
-    norms = (instance.get("appliedRules") or {}).get("norms") or {}
-    if "modus" not in norms:
-        raise ValueError("图谱缺陷：instance.appliedRules.norms.modus 缺失（④ 布局第一步即消费）")
-
-    return True
 
 
 def compute_geometry(instance):
@@ -471,10 +263,10 @@ def compute_geometry(instance):
         enc = p["c"].get("enclosure", {})
         if enc.get("beimen"):
             gz = zc + d / 2                         # 嵌在卡子墙缺口处(本院北墙)
-            geometry.extend(_geo_chuihua(gz, w, _role_of(enc["beimen"], "chuihuamen"), norms))
+            geometry.extend(_geo_chuihua(gz, w, _gate_role(enc["beimen"], "enclosure.beimen"), norms))
         if enc.get("nanmen"):
             gz = zc - d / 2
-            geometry.extend(_geo_chuihua(gz, w, _role_of(enc["nanmen"], "chuihuamen"), norms))
+            geometry.extend(_geo_chuihua(gz, w, _gate_role(enc["nanmen"], "enclosure.nanmen"), norms))
 
         # 围合构件（实体）：游廊 / 影壁
         # 注：游廊分支当前**不启用** —— 各进 peripheral 已不再声明 youlang（留待加细节阶段讨论形制与归属）。
@@ -529,6 +321,9 @@ def build_tour_path(instance, comps=None):
     plotted, _norms, _modus = _layout(instance)
     if not plotted:
         return []
+
+    # 巡游中文名同样只引用实例图谱快照（自动化端不回读盘包）。
+    _tour_labels = _labels_from_applied(instance.get("appliedDict"))
 
     # 宅门在东南角、不在中轴：门道中心 x 直接取实际构件里 zhaimen 的中心（避免公式两处实现漂移）
     gxs = [g.get("center", {}).get("x", 0.0)
@@ -585,7 +380,7 @@ def build_tour_path(instance, comps=None):
 
         # —— 出下道门：由本院北界进入下一院；末院北面无门，止于北房之前 ——
         if i == last:
-            nlabel = _label_of((p["bei"] or {}).get("role"), "院北")
+            nlabel = _label_of((p["bei"] or {}).get("role"), "院北", table=_tour_labels)
             z_stop = z_north - nd - 1.2 if nd > 0 else z_north - 1.2
             path.append({"x": 0.0, "z": round(z_stop, 3), "y": 0.0, "label": f"{nlabel}前",
                          "pause": TOUR_PAUSE, "look": [0.0, round(z_north, 3)]})
@@ -604,7 +399,7 @@ def build_tour_path(instance, comps=None):
             # 坐标与改动前完全一致(仅补语义标签与驻足)，零穿实体结论不受影响。
             nm = p["bei"] or {}
             # 穿堂正房即过厅(guoting)，与图谱 passage 节点同义；图谱不区分是否 tingfangyuan，统一标「过厅」。
-            hall = _label_of(nm.get("usage"), "过厅")
+            hall = _label_of(nm.get("usage"), "过厅", table=_tour_labels)
             next_name = plotted[i + 1]["c"].get("name") or f"第{i + 2}进" if i + 1 < len(plotted) else ""
             # 第一道门：南门(明间)——从内院进过厅（落脚台基面，避免踩墙/门槛）
             path.append({"x": 0.0, "z": round(z_north - nd, 3), "y": TOUR_STEP,
@@ -1089,7 +884,7 @@ def _voxelize_component(g, vox, labels):
     x0 = c.get("x", 0) - W / 2
     y0 = c.get("y", 0) - H / 2
     z0 = c.get("z", 0) - D / 2
-    label = _label_of(role, table=labels)
+    label = _label_of(role, dflt=role, table=labels)
     color = ROLE_COLORS.get(role, 0x999999)
     out = []
     for i in range(nx):
@@ -1105,7 +900,7 @@ def _voxelize_component(g, vox, labels):
     return out
 
 
-def geometry_to_boxes(geometry, vox=VOXEL_SIZE):
+def geometry_to_boxes(geometry, vox=VOXEL_SIZE, instance=None):
     """⑤ 几何造型引擎：构件 -> 体素 BOX 清单（真实多体素化，非 1 构件=1 box 占位）。
 
     选定 BOX 作为 MVP 表现基元，把每个构件按 VOXEL_SIZE 体素化成 box 网格。
@@ -1124,7 +919,9 @@ def geometry_to_boxes(geometry, vox=VOXEL_SIZE):
                          "compute_geometry 拿到构件清单，再调本工具")
     if not all(isinstance(g, dict) for g in geometry):
         raise ValueError("图谱缺陷：geometry 清单里含非对象项（构件须是对象）")
-    labels = _dict_labels()
+    # ⑤ 中文名唯一来源：实例图谱自带的 appliedDict 快照（自动化端不回读盘包）。
+    # 独立调用未带 instance 时退化为空表，_label_of 的 dflt=role 兜底显示 role key。
+    labels = _labels_from_applied(instance.get("appliedDict")) if instance else {}
     boxes = []
     for g in geometry:
         boxes.extend(_voxelize_component(g, vox, labels))
@@ -1135,17 +932,11 @@ def geometry_to_boxes(geometry, vox=VOXEL_SIZE):
     return boxes
 
 
-# ---------------- 串联入口（app.py 仅调此函数） ----------------
+# ---------------- 串联入口（便捷：本地验证 ④⑤ 全链） ----------------
 def instance_to_boxes(instance):
-    """instance -> 体素 BOX 清单（① -> ④ -> ⑤）。"""
-    return geometry_to_boxes(compute_geometry(instance))
+    """instance -> 体素 BOX 清单（④ -> ⑤ 串联）。
 
-
-# ---------------- 工具：读取/种子 ----------------
-def load_json(path):
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
-
-
-def load_seed():
-    return load_json(os.path.join(DATA_DIR, "siheyuan.instance.json"))
+    仅作本地验证便捷口；生产路径（MCP generate_building）是分别调
+    compute_geometry / geometry_to_boxes，以便在两步之间做各自的形状闸。
+    """
+    return geometry_to_boxes(compute_geometry(instance), instance=instance)

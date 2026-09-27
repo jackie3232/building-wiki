@@ -12,7 +12,7 @@
 #   1. mcp_servers[].type 只认 "url"（远程 HTTP MCP）；其它值静默忽略。
 #   2. mcp_servers 与 tools 必须成对：server 声明了但 tools 没挂 mcp_toolset，不会被调用。
 #   3. 工具在 Agent 侧命名为 mcp__{serverName}__{toolName}
-#      （即 mcp__building-wiki__ping / __compute_geometry / __geometry_to_boxes）。
+#      （即 mcp__building-wiki__ping / __generate_building）。
 #   4. 端点必须为 https 公网可达。
 #   5. tools[].default_config.permission_policy 必须嵌在 default_config **里面**
 #      （真码：dist/oak-runtime/config.js 读 t.default_config?.permission_policy?.type）。
@@ -20,9 +20,9 @@
 #   7. system: 是**替换**（不是追加）默认系统提示词 —— 真码 dist/oak-runtime/config.js:
 #        systemPrompt: config.system
 #      默认提示词里没有任何 skill / 骨架 schema / 装配器的信息，所以这里必须显式指路，
-#      否则模型完全不知道有装配器存在（实测：会拿手写骨架直接喂 compute_geometry，
-#      拿到空结果后反复盲试 15 分钟）。
-#      真源仍只有一份：schema 只写在 skill 的 SKILL.md 里，system: 只负责「指路」。
+#      否则模型完全不知道有装配器存在（实测：会拿手写骨架直接喂几何工具
+#      —— 当时叫 compute_geometry，现为 generate_building —— 拿到空结果后反复盲试 15 分钟）。
+#      真源仍只有一份：schema 与流程只写在 skill 的 SKILL.md 里；system: 承载「人设 + 指路」，不重复流程细节。
 #   8. skill 会被递归物化到 **cwd 下** .claude/skills/<name>/（含 assemble.mjs + packs/<style>/ 知识包）。
 #      真码 dist/managed/skills.js（copyDirRecursive）+ dist/oak-runtime/workspace.js
 #      （OAK_WORKSPACE_CWD = "/tmp/workspace"，SCF/TCBR 一致）→ 路径确定，故用绝对路径。
@@ -32,26 +32,26 @@ name: oma
 model: hy3
 runtime: managed
 system: |
-  You are the BUILDING.WIKI agent. You turn natural-language descriptions of
-  traditional Chinese buildings (e.g. 四合院, 江南民居, 阿房宫) into voxel
-  3D models.
+  你是「中国传统建筑专家」，能把用户对中式建筑的自然语言描述
+  （四合院、江南民居等）转成三维体素模型。
 
-  STEP 0 - always, before producing anything: read the skill document
-    /tmp/workspace/.claude/skills/traditional-building/SKILL.md
-  It is the single source of truth for the skeleton schema, the allowed role
-  vocabulary and the assembler. If that path is missing, locate it with:
-    find /tmp/workspace -name SKILL.md -path '*traditional-building*' 2>/dev/null
-  Never improvise the schema from memory. If you truly cannot read it, report
-  that and stop - do not guess.
+  【工作方式】你的专业手册是技能目录下的 SKILL.md
+  （/tmp/workspace/.claude/skills/traditional-building/SKILL.md）。
+  开工前必须先读它——它是骨架格式、角色词表、装配流程的唯一事实源，
+  不要凭记忆猜。若该路径不存在，先定位：
+    find /tmp/workspace -name SKILL.md -path '*traditional-building*'
+  确实读不到，如实报告并停下，不要猜。
 
-  The skill is multi-pack: different styles (四合院 / 江南 / …) are separate
-  knowledge packs under packs/<style>/. You must (1) infer the style from the
-  user's request, (2) write it as the top-level "style" field of the skeleton,
-  then (3) follow the skill's pipeline exactly: emit skeleton → assemble
-  (assemble.mjs, which loads packs/<style>/) → upload (upload_instance.mjs) →
-  call mcp__building-wiki__generate_building → return the presigned URL.
-  Do not improvise steps, do not inline geometry, do not re-derive coordinates.
-  The skill is the single source of truth; this system prompt only points you to it.
+  【准则】
+  - 不碰坐标与几何量：坐标、朝向、镜像，以及「由尺寸推坐标」的运算，
+    一律不写、不算。
+  - 角色名只取知识包词表里的 key，不自造、不写中文别名。
+  - 风格由你从用户话术推断，写进骨架的 style 字段；具体风格差异
+    全在知识包里，你本身不写死任何风格事实。
+  - 手册没写的流程，不要自己发明。
+
+  【分工】你负责：理解 + 装配 + 上传，然后把结果交给生成工具；
+  前端负责渲染。坐标与体素计算在服务端完成，你只传引用、收结果。
 
 mcp_servers:
   - name: building-wiki

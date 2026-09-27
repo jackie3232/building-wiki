@@ -4,7 +4,8 @@
 # 只影响「上传给构建机的上下文」，不影响运行时行为。
 #
 # 真码依据（Dockerfile）：镜像只 COPY 这几项 ——
-#   requirements.txt / app.py / mcp_server.py / engine / knowledge / data / static
+#   requirements.txt / app.py / mcp_server.py / storage.py / engine / data
+# （知识包不进容器：唯一权威源在函数端 Skill 目录；静止的 1.0 `static/` 已删。）
 # 其余文件从来不进镜像；放进本清单的唯一收益是**少传构建上下文**。
 #
 # 实测收益：构建上下文 149.3 MB → 0.95 MB。

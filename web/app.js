@@ -248,8 +248,6 @@ renderer.domElement.addEventListener("pointerup", (e) => {
 function toolLabel(title) {
   if (!title) return "工具";
   if (title.includes("generate_building")) return "生成体素模型";
-  if (title.includes("compute_geometry")) return "几何计算";
-  if (title.includes("geometry_to_boxes")) return "体素化";
   if (title === "Read") return "读知识库";
   if (title === "Write") return "写中间文件";
   if (title === "Bash") return "跑装配脚本";

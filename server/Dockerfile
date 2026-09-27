@@ -6,15 +6,16 @@
 #  C++/OCCT/CGAL，故整条链路为纯 Python 标准库，零编译、零原生依赖。
 #
 #  管线（2.0）：Agent（LLM 出骨架 → skill 装配实例图谱）
-#            → MCP compute_geometry(④) → geometry_to_boxes(⑤)
+#            → MCP generate_building（内部 ④ compute_geometry → ⑤ geometry_to_boxes）
 #            → 客户端渲染（前端独立部署，不在本容器内）
 #
 #  路径约定（与 engine/geometry.py 的 BASE 解析一致）：
 #    app.py              → /app/app.py         (纯 MCP 宿主)
-#    mcp_server.py       → /app/mcp_server.py  (ping / compute_geometry / geometry_to_boxes)
+#    mcp_server.py       → /app/mcp_server.py  (ping / generate_building)
 #    engine/             → /app/engine/        (④⑤ 计算引擎，纯 Python)
-#    packs/              → /app/packs/         (知识包：packs/<style>/{dict,type,rules}；⑤ label 与 ① 基线用)
 #    data/               → /app/data/          (instances 实例工程文件)
+#    注：知识包不进容器。其唯一权威源在函数端 Skill 目录，服务端运行时(④⑤/硬闸)
+#        只引用实例图谱自带的 appliedRules/appliedDict 快照，绝不回读盘包。
 # ===========================================================================
 
 FROM python:3.11-slim-bookworm
@@ -33,7 +34,6 @@ COPY app.py .
 COPY mcp_server.py .
 COPY storage.py .
 COPY engine ./engine
-COPY packs ./packs
 COPY data ./data
 
 EXPOSE 80

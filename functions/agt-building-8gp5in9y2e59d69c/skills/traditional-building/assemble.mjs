@@ -4,11 +4,10 @@
  * ============================================================
  * 职责：LLM 骨架（纯 role + 业务量） -> 自包含实例图谱。
  *
- * 这是 server/engine/intelligence.py 里 assemble_instance 及其装配段的
- * **忠实移植**（同一契约、同一产物）。移植目标不是「把 Python 搬过来」，
- * 而是让智能化层以 Agent 的原生形态存在（Agent 运行时 = @anthropic-ai/claude-agent-sdk / Node）。
+ * 这是智能化层 ① 装配的**唯一实现**（Agent 原生 / Node）。曾有一份同契约的
+ * Python 版住在引擎侧作参照，已随 2026-09-27 位置梳理删除——装配逻辑现只此一处。
  *
- * 分层依据（geometry.py L1-8 / L424-428）：
+ * 分层依据（架构设计总览 §13.4 / geometry.py 顶部分层注释）：
  *   - 装配 = 查表 + 拓扑，**零推理**；产物是**语义结构**（图谱），不是几何。
  *   - 数字在这里角色是「知识的搬运/快照」：把知识中心的 norms 原样抄进图谱，
  *     不运算、不出坐标。→ 因此装配属**智能化**，不属自动化（④⑤）。
@@ -24,7 +23,7 @@
  *   或： cat skeleton.json | node assemble.mjs --style <style>
  *   默认 --style=siheyuan，--packs 取脚本同目录下的 ./packs（约定优于配置：packs/<style>/）。
  *
- * 零漂移：与 Python assemble_instance 逐字段深比对（见 _verify_port.py）。
+ * 出口自校验：跑 validateInstanceGraph（实例图谱合规硬闸的唯一实现，在装配出口做一次）。
  */
 
 import fs from "node:fs";
@@ -33,11 +32,11 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
-// 骨架里允许携带的建筑声明字段（与 Python geometry._ROOM_DECL_KEYS 一致）：
+// 骨架里允许携带的建筑声明字段：
 // 声明性的（门 / 穿堂）+ 业务量（面阔…）。业务量的值域由 rules.paramRanges 约束（见 validatePlan）。
 const ROOM_DECL_KEYS = ["gate", "chuantang", "miankuo"];
 
-// ④ 实际消费的 norms 路径前缀（与 Python _NORMS_KEEP_PREFIXES 一致）
+// ④ 实际消费的 norms 路径前缀（appliedRules 快照只保留这些子树）
 const NORMS_KEEP_PREFIXES = [
   ["modus"], ["courtDepthRatio"],
   ["room"], ["door"], ["zhaimen"], ["houmen"], ["layout"], ["chuihuamen"],
@@ -53,7 +52,7 @@ function loadJson(p) {
 
 // ---------------- 知识中心 ----------------
 
-/** 读知识包三件套（rules / type / dict）。与 Python _load_knowledge 同契约。
+/** 读知识包三件套（rules / type / dict）。
  *  style = 包目录名：packs/<style>/{<style>.rules, <style>.type.json, dict.json}
  *  约定优于配置——新增风格只需在 packs/ 下加一个目录，引擎零改动。 */
 function loadKnowledge(style, baseDir = path.join(HERE, "packs")) {
@@ -77,7 +76,9 @@ function keepSubtree(src, prefix) {
   return cur;
 }
 
-/** 规则库 -> appliedRules 快照：只保留 ④ 实际消费的 norms 子树，无关词条全裁。 */
+/** 规则库 -> appliedRules 快照：只保留 ④ 与硬闸实际消费的子树，无关词条全裁。
+ *  裁剪范围：norms(④) + paramRanges/occupancy/position(硬闸值域·四至构成·构件位置校验)。
+ *  设计纪律：自动化端(④⑤/硬闸)只引用实例图谱自带快照，绝不回读盘上知识包。 */
 function snapshotRules(rulesDoc) {
   const full = rulesDoc?.norms ?? {};
   if (full === null || typeof full !== "object" || Array.isArray(full) || !("modus" in full)) {
@@ -94,7 +95,17 @@ function snapshotRules(rulesDoc) {
     }
     d[prefix[prefix.length - 1]] = sub;
   }
-  return { norms: trimmed };
+  const snap = { norms: trimmed };
+  // 硬闸所需、④ 不读的两段约束，一并快照，使实例可脱离盘包独立校验
+  if (rulesDoc?.paramRanges !== undefined) snap.paramRanges = rulesDoc.paramRanges;
+  const occRules = rulesDoc?.occupancy?.rules;
+  if (occRules !== undefined) snap.occupancy = { rules: occRules };
+  // position：带机器槽位(mount)的条目才是硬闸消费的部分，无 mount 的纯描述条目不进快照。
+  const posRules = rulesDoc?.position;
+  if (Array.isArray(posRules)) {
+    snap.position = posRules.filter((p) => p !== null && typeof p === "object" && typeof p.mount === "string");
+  }
+  return snap;
 }
 
 // ---------------- 命名字典裁剪 ----------------
@@ -111,13 +122,21 @@ function usedTerms(...docs) {
   return used;
 }
 
-/** 命名字典子集：只保留被用到的词条（按类别裁剪）；meta 段整段保留。 */
+/** 命名字典子集：只保留被用到的词条（按类别裁剪）；meta 段整段保留。
+ *  例外：DICT_FULL_KEEP 列的类目是**网关词表**（下游用它判合法/非法），
+ *  必须整段保留——裁剪后白名单会缩成「本次用到的词」，报错里列出的合法集也就不完整。 */
+const DICT_FULL_KEEP = new Set(["院落"]);
+
 function extractDict(dictDoc, ...docs) {
   if (!dictDoc) return null;
   const used = usedTerms(...docs);
   const out = {};
   for (const [cat, entries] of Object.entries(dictDoc)) {
     if (cat === "meta" || entries === null || typeof entries !== "object" || Array.isArray(entries)) {
+      out[cat] = entries;
+      continue;
+    }
+    if (DICT_FULL_KEEP.has(cat)) {
       out[cat] = entries;
       continue;
     }
@@ -130,7 +149,7 @@ function extractDict(dictDoc, ...docs) {
 
 // ---------------- 装配 ----------------
 
-/** 一栋建筑的声明：role + 尺度 + 该栋自身属性（等级/材质/高度/台明）。与 Python _room 同形。 */
+/** 一栋建筑的声明：role + 尺度 + 该栋自身属性（等级/材质/高度/台明）。 */
 function room(role, norms, typeDoc) {
   const n = norms?.[role] ?? {};
   const t = typeDoc?.roles?.[role] ?? {};
@@ -158,7 +177,7 @@ function expandRoom(spec, norms, typeDoc) {
 }
 
 // ---------------- 第一级合法性闸（词表 + 值域 + 结构） ----------------
-// 与 Python 侧 understanding._validate / _check_room / _legal_roles 同契约：
+// 理解层产物准入（装配器侧）：
 // 这是**理解层产物**的准入检查，不是几何校验。任何一项不过即抛错——不静默放行。
 // 值域取自知识中心 rules.paramRanges：真值域是知识中心的一个旋钮，改域不改码。
 
@@ -307,6 +326,18 @@ function courtNamer(rulesDoc, dictDoc) {
 const roleOf = (obj, dflt = null) =>
   obj !== null && typeof obj === "object" && !Array.isArray(obj) ? (obj.role ?? dflt) : dflt;
 
+/**
+ * 门体 role：节点不存在返回 null；节点在、role 缺 → 报图谱缺陷。
+ * 门的种类（垂花门 / 宅门 / …）事实源是知识包，产出侧只回读，绝不写死常量；
+ * 缺 role 时若静默回落，会变成「墙上有门却不开口」这种看不出来的错误。
+ */
+function gateRoleOf(node, ctx) {
+  if (node === null || node === undefined || node === false) return null;
+  const r = roleOf(node, null);
+  if (!r) throw new Error(`图谱缺陷：${ctx} 声明了门体却缺 role —— 门的种类须由知识包声明`);
+  return r;
+}
+
 /** 规则库里 `when` 条件的求值（如 "jin>=4" / "jin==2" / null=恒真）。 */
 function jinCondOk(cond, jin) {
   if (!cond) return true;
@@ -316,16 +347,14 @@ function jinCondOk(cond, jin) {
   return { ">=": jin >= n, "<=": jin <= n, "==": jin === n, ">": jin > n, "<": jin < n }[op];
 }
 
-/** 装配收尾：omit 裁剪 -> usage 标注 -> 院角色判定 -> ring 声明 -> 打包附属知识。纯机械，零推理。 */
-function finish(jin, courtyards, rulesDoc, dictDoc, omit = null, style = "siheyuan") {
-  const omitSet = new Set(omit ?? []);
-  for (const c of courtyards) {
-    const enc = c.enclosure ?? {};
-    for (const side of ["bei", "nan", "dong", "xi"]) {
-      const role = roleOf(enc[side], null);
-      if (role && omitSet.has(`${role}_${side}`)) enc[side] = null;
-    }
-  }
+/** 装配收尾：usage 标注 -> 院角色判定 -> ring 声明 -> 打包附属知识。纯机械，零推理。 */
+function finish(jin, courtyards, rulesDoc, dictDoc, style = "siheyuan") {
+  // 原此处有 omit 裁剪（--omit：抹掉指定侧建筑，用于验证「去掉建筑→外墙自动补上」）。
+  // 2026-09-27 删除：它要验的性质已由 ④ 的 _geo_wall_ring + _resolve_boundary 结构性保证
+  // （先画整圈墙、再按建筑真实覆盖做区间相减），直接构造 instance 即可验证；
+  // 而该开关本身与装配出口硬闸（validateInstanceGraph 按同一份 occupancy）方向相反，
+  // 任何可用取值都会被硬闸拒掉 —— 留着一个永远报错的开关只会误导。
+  // 若将来要支持「某侧可选」的合法变体，应由规则库声明 + 骨架表达，而非加回 CLI 开关。
 
   // 用途(usage)：图谱声明「某角色在某情形下作何用途」——如四进院第二进院正位房作过厅。
   for (const u of rulesDoc?.usage ?? []) {
@@ -369,21 +398,23 @@ function finish(jin, courtyards, rulesDoc, dictDoc, omit = null, style = "siheyu
 
     let nProv, nKind, nGate;
     if (enc.beimen) {
-      nProv = null; nKind = "kaziqiang"; nGate = "chuihuamen";
+      nProv = null; nKind = "kaziqiang";
+      nGate = gateRoleOf(enc.beimen, `courtyards[${i}].enclosure.beimen`);
     } else {
-      const ngate = enc.bei?.gate?.role ?? null;
-      nProv = nr; nKind = nr ? "houyanqiang" : "weiqiang"; nGate = ngate;
+      nProv = nr; nKind = nr ? "houyanqiang" : "weiqiang";
+      nGate = gateRoleOf(enc.bei?.gate, `courtyards[${i}].enclosure.bei.gate`);
     }
 
     let sProv, sKind, sGate, sThru;
     if (i === 0) {
       sProv = sr; sKind = sr ? "houyanqiang" : "weiqiang";
-      sGate = enc.nan?.gate ? "zhaimen" : null;
+      sGate = gateRoleOf(enc.nan?.gate, `courtyards[${i}].enclosure.nan.gate`);
       sThru = null;
     } else {
       sProv = prevNr; sKind = prevNr ? "houyanqiang" : "weiqiang";
       if (prevEnc.beimen) {
-        sGate = "chuihuamen"; sThru = null;
+        sGate = gateRoleOf(prevEnc.beimen, `courtyards[${i - 1}].enclosure.beimen`);
+        sThru = null;
       } else if (prevEnc.bei?.chuantang) {
         // 穿堂不是门：它是上一进北房「明间前后贯通」的做法，随正房归属上一进院。
         sGate = null;
@@ -427,12 +458,12 @@ function wrap(jin, courtyards, rulesDoc, dictDoc, style = "siheyuan", generatedB
 }
 
 // ---------------- 第二级硬闸：实例图谱 regime 校验（occupancy + position） ----------------
-// 与 Python geometry.validate_instance_graph 同契约、同事实源（occupancy.rules / position）。
+// 实例图谱合规校验的**唯一实现**（事实源：知识包的 occupancy.rules / position）。
 // 性质：确定性、非智能化；装配出口 fail-fast，使 Agent 在调 generate_building(55s MCP) 前
 // 拦住违规骨架。这是「理解层产物准入」(validatePlan) 之上的「几何前置准入」——后者只查
 // 词表/值域/结构，本闸补查「四至构成与门位」这类只有 occupancy/position 才定义的规制。
 
-/** 取 occupancy.rules；缺失即报图谱缺陷（与 Python _occupancy_rules 同）。 */
+/** 取 occupancy.rules；缺失即报图谱缺陷。 */
 function occupancyRules(rulesDoc) {
   const occ = rulesDoc?.occupancy?.rules ?? null;
   if (!Array.isArray(occ) || occ.length === 0) {
@@ -441,7 +472,7 @@ function occupancyRules(rulesDoc) {
   return occ;
 }
 
-/** 第 k 进的四至规则：按序求值、首个命中者胜出（与 Python _occupancy_of 同）。 */
+/** 第 k 进的四至规则：按序求值、首个命中者胜出。 */
 function occupancyOf(k, jin, occRules) {
   for (const r of occRules) {
     const at = r.at;
@@ -456,7 +487,58 @@ function occupancyOf(k, jin, occRules) {
   throw new Error(`图谱缺陷：第 ${k} 进（共 ${jin} 进）在 rules.occupancy 无规则命中`);
 }
 
-const VALID_COURT_ROLES = new Set(["waiyuan", "neiyuan", "houzhaoyuan", "tingyuan", "tingfangyuan"]);
+// ---------------- position 段：构件位置规制（数据驱动，代码零硬编角色名） ----------------
+// 事实源唯一：rules.position。代码只做「按 mount 取槽位 + 按 court/when 判第几进」，
+// 不出现任何具体角色名（垂花门/宅门/后门的约束一律写在规则库里）。
+// 「mount」声明该角色可挂的槽位（"beimen" / "nan.gate" / "bei.gate" / …），
+// 「court」声明可出现的进（1 / "middle" / "last"），「when」为该段的既有可求值条件。
+
+/** position 段中带机器槽位(mount)的条目 —— 只有这些参与门位准入校验。 */
+function positionMounts(rulesDoc) {
+  const pos = rulesDoc?.position;
+  if (!Array.isArray(pos)) {
+    throw new Error("图谱缺陷：规则库缺少 position 段（构件位置约束）");
+  }
+  return pos.filter((p) => p !== null && typeof p === "object" && typeof p.mount === "string");
+}
+
+/** 取 mount 指向的槽位（"nan.gate" -> enclosure.nan.gate）。 */
+function slotOf(enclosure, mount) {
+  let cur = enclosure;
+  for (const k of String(mount).split(".")) {
+    if (cur === null || typeof cur !== "object" || Array.isArray(cur)) return null;
+    cur = cur[k];
+  }
+  return cur;
+}
+
+const roleInSlot = (enclosure, mount) => roleOf(slotOf(enclosure, mount), null);
+
+/** 第 seq 进（共 jin 进）是否满足 position 条目的 court / jin* / when 条件。 */
+function courtMatchOk(seq, jin, entry) {
+  const court = entry.court;
+  if (court !== undefined && court !== null) {
+    if (court === "last") { if (seq !== jin) return false; }
+    else if (court === "middle") { if (!(1 < seq && seq < jin)) return false; }
+    else if (seq !== Number(court)) return false;
+  }
+  if ("jinEq" in entry && jin !== entry.jinEq) return false;
+  if ("jinGte" in entry && jin < entry.jinGte) return false;
+  if ("jinLte" in entry && jin > entry.jinLte) return false;
+  return jinCondOk(entry.when, jin);
+}
+
+/** 某 role 是否被 position 声明可挂在该侧——用于 occupancy「不应嵌门」的豁免判定。 */
+function mountAllows(positions, role, side) {
+  return positions.some((p) => p.role === role && p.mount === `${side}.gate`);
+}
+
+/** 合法院落角色集 = 命名字典「院落」段词表（唯一事实源；代码不得硬编）。 */
+function legalCourtRoles(dictDoc) {
+  const set = new Set(Object.keys(dictDoc?.["院落"] ?? {}));
+  if (!set.size) throw new Error("图谱缺陷：命名字典缺少「院落」段（院落角色词表）");
+  return set;
+}
 
 /**
  * 实例图谱硬闸：装配出口强制调用。返回 true 或抛「图谱缺陷」。
@@ -494,6 +576,9 @@ export function validateInstanceGraph(instance, rulesDoc, typeDoc, dictDoc) {
 
   // 词表（role 白名单）
   const roles = legalRoles(typeDoc, dictDoc);
+  // 构件位置规制 + 合法院落角色（均取自知识包，代码零硬编）
+  const positions = positionMounts(rulesDoc);
+  const courtRoles = legalCourtRoles(dictDoc);
   const used = new Set();
   for (const c of courtyards) {
     const enc = c.enclosure ?? {};
@@ -561,8 +646,8 @@ export function validateInstanceGraph(instance, rulesDoc, typeDoc, dictDoc) {
       if (expGate !== null && expGate !== actGate) {
         throw new Error(`图谱缺陷：第 ${seq} 进 四至「${side}」所嵌门应为 ${expGate}，实际为 ${actGate}（occupancy.${rid} 约束）`);
       }
-      if (expGate === null && actGate !== null && actGate !== "houmen") {
-        throw new Error(`图谱缺陷：第 ${seq} 进 四至「${side}」按 occupancy.${rid} 不应嵌门，实际嵌了 ${actGate}`);
+      if (expGate === null && actGate !== null && !mountAllows(positions, actGate, side)) {
+        throw new Error(`图谱缺陷：第 ${seq} 进 四至「${side}」按 occupancy.${rid} 不应嵌门，实际嵌了 ${actGate}（且 position 段未声明该侧可挂此门）`);
       }
     }
     for (const side of ["bei", "nan", "dong", "xi"]) {
@@ -593,30 +678,22 @@ export function validateInstanceGraph(instance, rulesDoc, typeDoc, dictDoc) {
     }
     seenNames.add(name);
     const cr = c.role;
-    if (cr !== null && cr !== undefined && !VALID_COURT_ROLES.has(cr)) {
-      throw new Error(`图谱缺陷：院落角色 ${JSON.stringify(cr)} 非法（须为 ${[...VALID_COURT_ROLES].join("/")}）`);
+    if (cr !== null && cr !== undefined && !courtRoles.has(cr)) {
+      throw new Error(`图谱缺陷：院落角色 ${JSON.stringify(cr)} 非法（须为 dict.json「院落」段词表：${[...courtRoles].join("/")}）`);
     }
   }
 
-  // position 显式校验（门的特殊位置语义）
-  for (const c of courtyards) {
-    const seq = c.sequence;
-    const enc = c.enclosure ?? {};
-    const beimenRole = roleOf(enc.beimen, null);
-    const nanGate = enc.nan?.gate?.role ?? null;
-    const beiGate = enc.bei?.gate?.role ?? null;
-    if (beimenRole === "chuihuamen" && !(seq === 1 && jin >= 2)) {
-      throw new Error(`图谱缺陷：垂花门(二门)只应设于首进北界(k=1, jin>=2)，却出现在第 ${seq} 进（position.chuihuamen 约束）`);
-    }
-    if (nanGate === "zhaimen" && seq !== 1) {
-      throw new Error(`图谱缺陷：宅门(zhaimen)只应嵌于首进倒座房东南角，却出现在第 ${seq} 进（position.zhaimen 约束）`);
-    }
-    if (beiGate === "houmen") {
-      if (seq !== jin) {
-        throw new Error(`图谱缺陷：后门(houmen)只应设于末进后罩房西北角，却出现在第 ${seq} 进（position.houmen 约束）`);
-      }
-      if (jin < 3) {
-        throw new Error(`图谱缺陷：后门(houmen)仅在 jin>=3 的末进才可能出现（后罩房只存在于 jin>=3），当前 jin=${jin}（position.houmen 约束）`);
+  // position 校验（构件位置规制）：逐条读规则库 position 段求值，代码不硬编任何角色名。
+  for (const p of positions) {
+    for (const c of courtyards) {
+      if (roleInSlot(c.enclosure ?? {}, p.mount) !== p.role) continue;
+      if (!courtMatchOk(c.sequence, jin, p)) {
+        const cond = [`mount=${p.mount}`];
+        if (p.court !== undefined) cond.push(`court=${p.court}`);
+        if (p.when) cond.push(`when=${p.when}`);
+        throw new Error(
+          `图谱缺陷：${p.role} 出现在第 ${c.sequence} 进（共 ${jin} 进），违反规则库 position 段约束`
+          + `（${cond.join(" / ")}）${p.desc ? " —— " + p.desc : ""}`);
       }
     }
   }
@@ -641,7 +718,7 @@ export function validateInstanceGraph(instance, rulesDoc, typeDoc, dictDoc) {
  *
  * - 尺度数值由 expandRoom 查知识中心补；骨架只带 role / 拓扑 / jin（+ 可选业务量，如 miankuo）。
  * - 院名不取自骨架，由 sequence.naming 规则推导（命名权归图谱，不归 LLM）。
- * - 收尾与确定性基线共用 finish，故形状必然一致。
+ * - 收尾与 CLI 直跑共用 finish，故两条入口出的形状必然一致。
  */
 export function assembleInstance(plan, packsRoot, opts = {}) {
   const style = opts.style || plan.style || "siheyuan";
@@ -649,7 +726,7 @@ export function assembleInstance(plan, packsRoot, opts = {}) {
   const norms = rules.norms ?? {};
   const courtName = courtNamer(rules, dict);
 
-  // 第一级合法性闸：词表 + 值域 + 结构。不过即抛错（调用方回落确定性基线）。
+  // 第一级合法性闸：词表 + 值域 + 结构。不过即抛错（该骨架作废，须回理解层重出）。
   validatePlan(plan, { rules, type, dict });
   const specs = plan.courtyards;
   const jin = Number(plan.jin);
@@ -686,10 +763,11 @@ export function assembleInstance(plan, packsRoot, opts = {}) {
     courtyards.push(c);
   });
 
-  const inst = finish(jin, courtyards, rules, dict, opts.omit ?? null, style);
+  const inst = finish(jin, courtyards, rules, dict, style);
   // 装配出口硬闸：实例图谱 regime 校验（occupancy + position）。不过即抛错，
-  // 使 Agent 在调 generate_building(55s MCP) 前 fail-fast；与 Python 端 generate_building
-  // 读回后的硬闸同契约、同事实源，两端双重保险。
+  // 使 Agent 在调 generate_building（数十秒的 MCP 往返）前 fail-fast。
+  // 这是实例图谱合规校验的**唯一实现**（2026-09-27 定）：服务端不再重复校验，
+  // 那一侧的守卫只剩 ④ 自带的形状闸 _graph_data（入参非自包含图谱即报错）。
   validateInstanceGraph(inst, rules, type, dict);
   return inst;
 }
@@ -697,12 +775,13 @@ export function assembleInstance(plan, packsRoot, opts = {}) {
 // ---------------- CLI ----------------
 
 function parseArgs(argv) {
-  const out = { packs: path.join(HERE, "packs"), skeleton: null, style: null, omit: null };
+  const out = { packs: path.join(HERE, "packs"), skeleton: null, style: null };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--packs") out.packs = argv[++i];
     else if (argv[i] === "--style") out.style = argv[++i];
     else if (argv[i] === "--skeleton") out.skeleton = argv[++i];
-    else if (argv[i] === "--omit") out.omit = argv[++i].split(",").filter(Boolean);
+    // 未知参数一律报错，不静默忽略——静默忽略会让人以为某个开关生效了（--omit 就是这么被误用的）。
+    else throw new Error(`图谱缺陷：assemble.mjs 不认识参数「${argv[i]}」（支持 --packs / --style / --skeleton）`);
   }
   return out;
 }
@@ -716,7 +795,7 @@ function main() {
     raw = fs.readFileSync(0, "utf-8"); // stdin
   }
   const plan = JSON.parse(raw);
-  const inst = assembleInstance(plan, args.packs, { style: args.style, omit: args.omit ?? null });
+  const inst = assembleInstance(plan, args.packs, { style: args.style });
   process.stdout.write(JSON.stringify(inst, null, 2));
 }
 

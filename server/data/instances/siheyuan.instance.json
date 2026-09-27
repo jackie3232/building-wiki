@@ -1,8 +1,9 @@
 {
+  "style": "siheyuan",
   "meta": {
     "type": "siheyuan",
-    "desc": "北京3进四合院实例（由类型图谱+规则库合成，工程文件·自包含）",
-    "generatedBy": "build_instance (① placeholder)",
+    "desc": "siheyuan 3进实例（工程文件·自包含）",
+    "generatedBy": "legacy（源自已删除的 Python 装配器 build_instance；非当前 assemble.mjs 可复现——缺 relation/door.at 等新字段）；保留作 ④⑤ 回归基线：118 构件 / 4883 体素",
     "zeroCoord": true
   },
   "data": {
@@ -315,6 +316,135 @@
         "taiming": 0.3,
         "desc": "后罩房面阔约同正房；进深较浅约5m。height 原 ④ 常量 WING_HEIGHT。taiming=台明高，见 norms.taiming.desc。"
       }
+    },
+    "paramRanges": {
+      "jin": {
+        "ref": "jin",
+        "range": [
+          1,
+          4
+        ],
+        "desc": "院落进数允许范围（已放宽至四进）"
+      },
+      "miankuo": {
+        "ref": "miankuo",
+        "range": [
+          1,
+          7
+        ],
+        "step": 2,
+        "desc": "面阔（开间数）允许值域：奇数、中轴对称、上限 7（=2×3+1，受 dict.开间 offset 0–3 约束）。用户未声明时取 norms.<role>.miankuo 为缺省。反向消费：由观测到的开间数（柱位 / 门窗洞）校验或推断该栋面阔。"
+      }
+    },
+    "occupancy": {
+      "rules": [
+        {
+          "id": "single",
+          "at": 1,
+          "jinEq": 1,
+          "sides": {
+            "bei": {
+              "role": "zhengfang"
+            },
+            "nan": {
+              "role": "daozuofang",
+              "gate": {
+                "role": "zhaimen"
+              }
+            },
+            "dong": {
+              "role": "xiangfang"
+            },
+            "xi": {
+              "role": "xiangfang"
+            }
+          },
+          "peripheral": [
+            {
+              "role": "yingbi"
+            }
+          ],
+          "perimeter": true,
+          "why": "一进院：无垂花门即无内外之分，此院既是入口院也是主院 → 正房 + 倒座房（含宅门）+ 东西厢房俱全；影壁正对宅门，归此院。"
+        },
+        {
+          "id": "waiyuan",
+          "at": 1,
+          "jinGte": 2,
+          "sides": {
+            "nan": {
+              "role": "daozuofang",
+              "gate": {
+                "role": "zhaimen"
+              }
+            }
+          },
+          "beimen": {
+            "role": "chuihuamen"
+          },
+          "peripheral": [
+            {
+              "role": "yingbi"
+            }
+          ],
+          "perimeter": true,
+          "why": "外院（首进）：仅倒座房（含宅门），北界卡子墙正中开垂花门；**不设东西厢房**（用户 2026-09-22 定：外院不需要，其余进都需要）。影壁归首院。"
+        },
+        {
+          "id": "neiyuan",
+          "at": "middle",
+          "sides": {
+            "bei": {
+              "role": "zhengfang",
+              "chuantang": true
+            },
+            "dong": {
+              "role": "xiangfang"
+            },
+            "xi": {
+              "role": "xiangfang"
+            }
+          },
+          "perimeter": true,
+          "why": "中间进（内院 / 厅房院）：正房明间做穿堂南北贯通，连通下一进；东西厢房对称；院际不设独立门楼（故无垂花门、无 beimen）。"
+        },
+        {
+          "id": "neiyuan_last",
+          "at": "last",
+          "jinEq": 2,
+          "sides": {
+            "bei": {
+              "role": "zhengfang"
+            },
+            "dong": {
+              "role": "xiangfang"
+            },
+            "xi": {
+              "role": "xiangfang"
+            }
+          },
+          "perimeter": true,
+          "why": "二进末进即主院（内院）：正房 + 东西厢房；其后无院，故正房不做穿堂。"
+        },
+        {
+          "id": "houzhaoyuan",
+          "at": "last",
+          "jinGte": 3,
+          "sides": {
+            "bei": {
+              "role": "houzhaofang"
+            },
+            "dong": {
+              "role": "xiangfang"
+            },
+            "xi": {
+              "role": "xiangfang"
+            }
+          },
+          "perimeter": true,
+          "why": "三进及以上末进为后罩院：后罩房 + 东西厢房（用户 2026-09-22 定：除首进外每进都有东西厢房）；末进无穿堂。"
+        }
+      ]
     }
   },
   "appliedDict": {
@@ -432,6 +562,10 @@
       "miankuo": {
         "label": "面阔",
         "desc": "面阔间数；面阔米数 = 间数 × 每间模数"
+      },
+      "jin": {
+        "label": "进",
+        "desc": "院落进数；三进 = 沿中轴南北排 3 个院落，变体开关"
       }
     },
     "开间": {
