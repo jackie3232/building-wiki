@@ -38,3 +38,9 @@ web/config.local.js
 
 # Node 依赖目录（不入库；云函数部署由平台 Auto install dependencies 安装）
 node_modules/
+
+# 预览回路产物（每次跑 tools/preview/preview.py 重新生成，不入库）
+tools/preview/out/
+
+# 知识包编译产物（源在 packs/*/src/，产物每次跑 tools/kb/compile.py 重新生成，不入库）
+functions/*/skills/*/packs/*/build/

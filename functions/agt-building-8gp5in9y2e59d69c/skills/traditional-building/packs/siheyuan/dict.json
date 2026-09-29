@@ -25,73 +25,155 @@
   },
   "空间角色": {
     "zhengfang": {
+      "form": {"kind": "room"},
+      "color": "#C0504D",
       "label": "正房",
-      "desc": "坐北朝南正中的主屋，等级最高、面阔最大"
+      "desc": "坐北朝南正中的主屋，等级最高、面阔最大",
+      "level": "yideng",
+      "material": "qingzhuan",
+      "modular": ["miankuo", "jinshen"],
+      "structs": ["wuoding", "qiangti", "taiji", "zhu", "liang", "men", "chuang"]
     },
     "xiangfang": {
+      "form": {"kind": "room"},
+      "color": "#E0A030",
       "label": "厢房",
-      "desc": "院落东西两侧对称布置的次屋"
+      "desc": "院落东西两侧对称布置的次屋",
+      "level": "erdeng",
+      "material": "qingzhuan",
+      "modular": ["miankuo", "jinshen"],
+      "structs": ["wuoding", "qiangti", "taiji", "zhu", "liang", "men", "chuang"]
     },
     "daozuofang": {
+      "form": {"kind": "room"},
+      "color": "#4F81BD",
       "label": "倒座房",
-      "desc": "院落最南、朝北，与正房相对"
+      "desc": "院落最南、朝北，与正房相对",
+      "level": "sandeng",
+      "material": "qingzhuan",
+      "modular": ["miankuo", "jinshen"],
+      "structs": ["wuoding", "qiangti", "taiji", "zhu", "liang", "men", "chuang"]
     },
     "houzhaofang": {
+      "form": {"kind": "room"},
+      "color": "#9B59B6",
       "label": "后罩房",
-      "desc": "正房之后、院落最北的一排屋"
+      "desc": "正房之后、院落最北的一排屋",
+      "level": "erdeng",
+      "material": "qingzhuan",
+      "structs": ["wuoding", "qiangti", "taiji", "zhu", "liang", "men", "chuang"]
     },
     "erfang": {
+      "form": {"kind": "room"},
+      "color": "#9B59B6",
       "label": "耳房",
-      "desc": "主屋两侧接出的小屋"
+      "desc": "主屋两侧接出的小屋",
+      "level": "erdeng",
+      "material": "qingzhuan",
+      "structs": ["wuoding", "qiangti", "taiji", "zhu", "liang"]
     },
     "chuihuamen": {
+      "form": {"kind": "gate-passage", "at": "center", "tower": true},
+      "color": "#82A33A",
       "label": "垂花门",
-      "desc": "分隔外院与内院的内门，装饰性"
+      "desc": "分隔外院与内院的内门，装饰性",
+      "level": "sideng",
+      "material": "mugou",
+      "structs": ["men", "qiangti", "wuoding"]
     },
     "youlang": {
+      "form": {"kind": "colonnade"},
+      "color": "#808080",
       "label": "游廊",
-      "desc": "连接各屋的带顶走廊"
+      "desc": "连接各屋的带顶走廊",
+      "level": "sideng",
+      "material": "mugou",
+      "structs": ["wuoding", "qiangti", "zhu", "liang"]
     },
     "yingbi": {
+      "form": {"kind": "screen-wall"},
+      "color": "#B0A040",
       "label": "影壁",
       "desc": "正对宅门、立于门内侧的屏蔽短墙，遮挡外人直视院内并美化出入口；距门内约丈余，与大门互相陪衬烘托。形制分独立影壁（一字影壁，独立砌筑）与座山影壁（砌在厢房南山墙上、与山墙连为一体）。归属判据：正对哪道门，就归那道门所在之院——宅门影壁属外院（第一进）；垂花门之后的屏门属内院且在中轴。大门外的照壁（胡同对面）与撇山影壁（门外两侧八字）不在宅院之内。",
-      "source": "科普中国·百度百科「影壁」：大门内或屏门内做屏蔽作用的墙壁，距门内约丈余，分独立影壁与座山影壁；siheyuan.vip《北京四合院的基本格局》「进门后迎面是镶砌在东厢房南山墙上的座山影壁」；快懂百科「无论门第高低，大门内都有一扇影壁」"
+      "source": "科普中国·百度百科「影壁」：大门内或屏门内做屏蔽作用的墙壁，距门内约丈余，分独立影壁与座山影壁；siheyuan.vip《北京四合院的基本格局》「进门后迎面是镶砌在东厢房南山墙上的座山影壁」；快懂百科「无论门第高低，大门内都有一扇影壁」",
+      "level": "sideng",
+      "material": "mohui",
+      "structs": ["qiangti"]
     },
     "yuanqiang": {
+      "form": {"kind": "ring-wall"},
+      "color": "#7F7F7F",
       "label": "院墙",
-      "desc": "围合院落的外围墙（四面闭合，南面留院门缺口）"
+      "desc": "围合院落的外围墙（四面闭合，南面留院门缺口）",
+      "level": "sideng",
+      "material": "chengzhuan",
+      "structs": ["qiangti"]
     },
     "zhaimen": {
+      "form": {"kind": "gate-passage", "at": "east-end", "tower": true},
+      "color": "#8B4513",
       "label": "大门",
-      "desc": "四合院主入口（宅门/街门）：倒座房东端一间改门道+门楼，位于院落东南角（坎宅巽门），门道南北贯通（临街↔内院），与南院墙缺口对齐"
+      "desc": "四合院主入口（宅门/街门）：倒座房东端一间改门道+门楼，位于院落东南角（坎宅巽门），门道南北贯通（临街↔内院），与南院墙缺口对齐",
+      "level": "sideng",
+      "material": "mugou",
+      "modular": ["miankuo", "jinshen"],
+      "structs": ["men", "qiangti", "wuoding"]
     },
     "houmen": {
+      "form": {"kind": "gate-passage", "at": "west-end", "tower": false},
+      "color": "#999999",
       "label": "后门",
       "desc": "宅院对外的后出口：后罩房（最末一进）西北角一间空出改作门道，南北贯通，通向北面另一条胡同。**条件性构件**——仅当宅后临街才设；后罩房后檐墙通常不开门窗（安全防御），无后门时此位即实墙。与大门呼应：三进院总长约 50~60m，恰等于北京两条胡同间距，故大门面南胡同、后门面北胡同。图谱记在后罩房上（gate=houmen），与大门记在倒座房上（gate=zhaimen）对称；位置西北角由规则库 position 声明，不占中轴。",
-      "source": "中国民族建筑研究会（人民日报号《中规中矩的“中国范”：北京四合院的典型布局》）「三进院子的总长度大约在50~60米，恰好与北京城内很多地区两条胡同之间的距离相等，前面的大门和最后面的后门可以分别面临南北两条胡同」「后照房的西北角设有后门，通向北面的另一条胡同」；北京晚报·刘孝存《老北京四合院探微》「院落若是有后门，则开在院落后院的西北角」；《老房子·北京四合院》「如果四合院的后面临街，那么还可以将西北角的一个房间空出来作为后门使用」。反证：《真实的老北京四合院·后罩房篇》「后罩房只有朝南的一面有门窗，后檐墙上没有后窗，一般也不会设置后门」"
+      "source": "中国民族建筑研究会（人民日报号《中规中矩的“中国范”：北京四合院的典型布局》）「三进院子的总长度大约在50~60米，恰好与北京城内很多地区两条胡同之间的距离相等，前面的大门和最后面的后门可以分别面临南北两条胡同」「后照房的西北角设有后门，通向北面的另一条胡同」；北京晚报·刘孝存《老北京四合院探微》「院落若是有后门，则开在院落后院的西北角」；《老房子·北京四合院》「如果四合院的后面临街，那么还可以将西北角的一个房间空出来作为后门使用」。反证：《真实的老北京四合院·后罩房篇》「后罩房只有朝南的一面有门窗，后檐墙上没有后窗，一般也不会设置后门」",
+      "level": "sideng",
+      "material": "mugou",
+      "modular": ["miankuo", "jinshen"],
+      "structs": ["men", "qiangti", "wuoding"]
     },
     "chuantang": {
+      "form": {"kind": "passage"},
       "label": "穿堂",
       "desc": "正房明间（中央开间）做成南北贯通的过厅，连通本院与下一进院。**它是正房的一种做法，不是独立的门**：随正房归属其所在院，故图谱记正房属性 chuantang=true、院界记 ring.nan.thru（**不记 gate**），视图不立门节点。与「过厅」是一体两面——过厅强调厅堂功能，穿堂强调穿行功能。",
-      "source": "旬邑唐家大院「前后院之间那座作为分隔的客厅叫做穿堂过厅……前后贯通可穿行」；三进院另一种格局「将二进院正房明间做成过厅，宅人从中路进入后院」"
+      "source": "旬邑唐家大院「前后院之间那座作为分隔的客厅叫做穿堂过厅……前后贯通可穿行」；三进院另一种格局「将二进院正房明间做成过厅，宅人从中路进入后院」",
+      "level": "sideng",
+      "material": "mugou",
+      "structs": ["men", "qiangti", "wuoding"]
     },
     "kaziqiang": {
+      "form": {"kind": "ring-wall"},
       "label": "卡子墙",
-      "desc": "分隔外院与内院、东西厢房之间的院墙，正中开垂花门"
+      "desc": "分隔外院与内院、东西厢房之间的院墙，正中开垂花门",
+      "level": "sideng",
+      "material": "chengzhuan",
+      "structs": ["qiangti"]
     },
     "jiaodao": {
+      "form": {"kind": "passage"},
       "label": "夹道",
-      "desc": "正房东侧耳房尽端留出的窄通道，作为通后院的备选路径"
+      "desc": "正房东侧耳房尽端留出的窄通道，作为通后院的备选路径",
+      "level": "sideng",
+      "material": "chengzhuan",
+      "structs": ["qiangti"]
+    },
+    "tingyuan": {
+      "form": {"kind": "void"},
+      "color": "#CFCFCF",
+      "label": "庭院",
+      "desc": "院落中央的露天场地（无屋盖），由四面房屋围合；是院落的「空」的部分，供采光通风与家庭活动。",
+      "open": true
     },
     "weiqiang": {
+      "form": {"kind": "ring-wall"},
       "label": "外围围墙",
       "desc": "整座院落群最外圈连续围墙，高大不开窗，围合整个四合院；各进院落外圈段拼合即构成它"
     },
     "houyanqiang": {
+      "form": {"kind": "ring-wall"},
       "label": "后檐墙",
       "desc": "建筑自带的山墙/后檐墙，兼作院落边界：正房/后罩房后檐墙=其北界屏障，倒座后檐墙=临街南屏障，厢房后檐墙=院子左右屏障"
     },
     "buqiang": {
+      "form": {"kind": "ring-wall"},
       "label": "补墙",
       "desc": "填补建筑之间空隙的短墙（如卡子墙至厢房山墙段、厢房山墙至耳房段），使院墙环连续闭合"
     }
@@ -155,6 +237,8 @@
       "desc": "围护与分隔的墙"
     },
     "taiji": {
+      "form": {"kind": "base"},
+      "color": "#9E9284",
       "label": "台基",
       "desc": "承托房屋的台座"
     },

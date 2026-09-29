@@ -83,12 +83,54 @@ def _label_of(key, dflt=None, table=None):
         "新增 role/key 须先在 dict.json 补词条" % (key,))
 
 
-ROLE_COLORS = {
-    "zhengfang": 0xC0504D, "xiangfang": 0xE0A030, "daozuofang": 0x4F81BD,
-    "houzhaofang": 0x9B59B6, "chuihuamen": 0x82A33A, "erfang": 0x9B59B6,
-    "youlang": 0x808080, "yingbi": 0xB0A040, "tingyuan": 0xCFCFCF, "yuanqiang": 0x7F7F7F,
-    "zhaimen": 0x8B4513, "taiji": 0x9E9284,
-}
+def _entry_of(applied, key):
+    """在 appliedDict（命名字典快照，按类目分组）里跨类目查一个词条；查不到返回 {}。"""
+    if not isinstance(applied, dict):
+        return {}
+    for cat, items in applied.items():
+        if cat == "meta" or not isinstance(items, dict):
+            continue
+        e = items.get(key)
+        if isinstance(e, dict):
+            return e
+    return {}
+
+
+def _form_of(applied, key):
+    """词条的形体声明（`dict.<类目>.<key>.form`）—— ④ 的造型依据。
+
+    **这是「引擎零风格硬编」（架构总纲 §7 判据 1）的落点。**
+    门的落位（east-end / west-end / center）、是否带门楼、房/墙/廊/壁的形体原型，
+    一律由知识包声明；④ 只按声明执行，代码里不出现任何具体建筑角色名。
+    历史包袱：这些事实原先是 geometry.py 里的 if/elif 分支（`gate == "zhaimen"` 等）。
+    """
+    f = _entry_of(applied, key).get("form")
+    return f if isinstance(f, dict) else {}
+
+
+def _hex_to_int(s, ctx):
+    """'#C0504D' -> 0xC0504D。缺 / 非法即报图谱缺陷（图示色属知识事实，代码不兜底）。"""
+    if not isinstance(s, str):
+        raise ValueError("图谱缺陷：%s 缺 color（须为 '#RRGGBB'）—— 新增 role 须先在 "
+                         "dict.json 补 form/color" % ctx)
+    t = s.strip().lstrip("#")
+    if len(t) != 6:
+        raise ValueError("图谱缺陷：%s 的 color %r 不是 '#RRGGBB'" % (ctx, s))
+    return int(t, 16)
+
+
+def _colors_from_applied(applied):
+    """命名字典快照 -> 扁平 {key: 颜色int}（跨类目合并）。⑤ 上色的唯一来源。"""
+    flat = {}
+    if not isinstance(applied, dict):
+        return flat
+    for cat, items in applied.items():
+        if cat == "meta" or not isinstance(items, dict):
+            continue
+        for k, v in items.items():
+            if isinstance(v, dict) and isinstance(v.get("color"), str):
+                flat[k] = _hex_to_int(v["color"], "dict 词条 %r" % (k,))
+    return flat
 
 def _norms_get(norms, path, ctx=""):
     """按路径从 appliedRules.norms 取值；缺失即报错。
@@ -164,15 +206,25 @@ def _layout(instance):
     for c in courtyards:
         enc = c.get("enclosure", {})
         bei, nan, dong, xi = enc.get("bei"), enc.get("nan"), enc.get("dong"), enc.get("xi")
-        ref = bei or nan or {}
-        w = _dim(ref, "miankuo", 5) * modus
+        ref = bei or nan
+        # 面阔只从实例取值，代码不设缺省数字（原为 `_dim(ref,"miankuo",5)` 的硬编 5）。
+        # 南北两侧都没建筑 ⇒ 该院算不出占地，属图谱结构缺陷，必须报出来。
+        if not isinstance(ref, dict) or not isinstance(ref.get("miankuo"), (int, float)):
+            raise ValueError(
+                "图谱缺陷：第 %s 进 南北两侧均无带 miankuo 的建筑，算不出院落面阔"
+                % c.get("sequence"))
+        w = ref["miankuo"] * modus
         nd = _dim(bei, "jinshen", 0) * modus   # 缺房则进深记 0（无幽灵进深）
         sd = _dim(nan, "jinshen", 0) * modus
-        cdr = norms.get("courtDepthRatio", 0.6)
+        cdr = _norms_get(norms, ("courtDepthRatio",), "院落进深比例")
         if isinstance(cdr, dict):
             role = c.get("role")
-            cdr_map = cdr.get("byRole", {})
-            ratio = cdr_map.get(role, cdr.get("default", 0.6)) if role in cdr_map else cdr.get("default", 0.6)
+            cdr_map = cdr.get("byRole") or {}
+            ratio = cdr_map.get(role, cdr.get("default"))
+            if not isinstance(ratio, (int, float)):
+                raise ValueError(
+                    "图谱缺陷：appliedRules.norms.courtDepthRatio 未给 role=%r 的比例，"
+                    "且无 default" % (role,))
         else:
             ratio = cdr
         court_depth = w * ratio   # 露天院落进深=面阔×按角色比例(waiyuan浅/neiyuan大/houzhaoyuan中)
@@ -226,67 +278,89 @@ def compute_geometry(instance):
     """
     _graph_data(instance, "compute_geometry")
     plotted, norms, modus = _layout(instance)
+    applied = instance.get("appliedDict") or {}
+    # 墙种值域与分组（appliedRules.wall）：④ 按 ring.<side>.kind 取墙高厚（2026-09-28 接上消费者）。
+    # 只有「基底院墙」那一组（appliesTo=ringBase）决定院墙高厚；建筑用墙（houyanqiang）回落 norms.wall。
+    _wall = (instance.get("appliedRules") or {}).get("wall") or {}
+    wall_kinds = _wall.get("kinds") or {}
+    wall_role = _wall.get("ref")
+    if not isinstance(wall_role, str) or not wall_role:
+        raise ValueError("图谱缺陷：appliedRules.wall.ref 缺失 —— 独立院墙的角色 key 须由知识包声明")
+    ring_kinds = set()
+    for grp in (_wall.get("taxonomy") or {}).values():
+        if isinstance(grp, dict) and grp.get("appliesTo") == "ringBase":
+            ring_kinds.update(grp.get("kinds") or [])
+    if not ring_kinds:
+        raise ValueError("图谱缺陷：appliedRules.wall.taxonomy 无 appliesTo=ringBase 的墙种分组")
     geometry = []
     for idx, p in enumerate(plotted):
         zc = p["zc"]
         w, d = p["w"], p["d"]
         nd, sd = p["nd"], p["sd"]
 
-        if p["bei"]:
-            nrole = p["bei"]
-            ngate = ((nrole or {}).get("gate") or {}).get("role")
-            if ngate:
-                # 对外门嵌在北房里（后门 = 西北角一间改门道）→ 拆「东段普通房 + 西端贯通门道」
-                geometry.extend(_geo_back_gate(0, w, nd, zc + d / 2 - nd / 2, nrole, ngate, norms))
-            elif (nrole or {}).get("chuantang"):
-                geometry.extend(_geo_zhengfang_chuantang(0, w, nd, zc + d / 2 - nd / 2, nrole, norms))
-            else:
-                # 北侧房屋朝南开口（庭院在南）——开口朝向由房屋所在侧决定，不靠角色名硬判
-                geometry.extend(_geo_wing(0, w, nd, zc + d / 2 - nd / 2, nrole, "S", norms))
-        if p["nan"]:
-            has_gate = bool((p["nan"] or {}).get("gate"))
-            geometry.extend(_geo_daozuo(0, w, sd, zc - d / 2 + sd / 2, p["nan"], norms, has_gate))
-        # 东西厢：长边沿 Z（面阔），厚沿 X（进深）。
-        # Z 向填充「正房南檐 -> 倒座北檐」空隙，中心 = zc + (sd-nd)/2，
-        # 使其与正房只在角上相接、体积不重叠（修此前 厢房/正房 空间重叠）。
+        # 南北向房屋：长边沿 X（面阔）、厚沿 Z（进深）。开口朝向由「房屋在院的哪一侧」决定
+        # （北侧房朝南、南侧房朝北）——这是几何事实，不靠角色名的字面量硬判。
+        for side in ("bei", "nan"):
+            node = p[side]
+            if not node:
+                continue
+            depth = nd if side == "bei" else sd
+            if depth <= 0:
+                continue
+            z_side = zc + d / 2 - nd / 2 if side == "bei" else zc - d / 2 + sd / 2
+            # 中轴 x 传**整型 0**（不是 0.0）：构件坐标经 round() 后要逐字节与改动前一致，
+            # 0 与 0.0 在 JSON 里是两个不同的字面量，会污染零漂移核验。
+            geometry.extend(_geo_house(node, 0, w, depth, z_side,
+                                       "S" if side == "bei" else "N", norms, applied))
+        # 东西向房屋：长边沿 Z（面阔），厚沿 X（进深）。
+        # Z 向填充「北房檐 -> 南房檐」空隙，中心 = zc + (sd-nd)/2，
+        # 使其与北房只在角上相接、体积不重叠（修此前 厢房/北房 空间重叠）。
         ew_z = zc + (sd - nd) / 2
-        if p["dong"]:
-            ed = _dim(p["dong"], "jinshen", 0) * modus
-            el = _xiangfang_length(p["dong"], norms, d, nd, sd, modus)
-            geometry.extend(_geo_dongxi(+(w / 2 - ed / 2), el, ed, ew_z, p["dong"], norms))
-        if p["xi"]:
-            ed = _dim(p["xi"], "jinshen", 0) * modus
-            el = _xiangfang_length(p["xi"], norms, d, nd, sd, modus)
-            geometry.extend(_geo_dongxi(-(w / 2 - ed / 2), el, ed, ew_z, p["xi"], norms))
+        for side in ("dong", "xi"):
+            node = p[side]
+            if not node:
+                continue
+            ed = _dim(node, "jinshen", 0) * modus
+            if ed <= 0:
+                continue
+            el = _wing_length(node, norms, d, nd, sd, modus)
+            cx_side = (w / 2 - ed / 2) if side == "dong" else -(w / 2 - ed / 2)
+            geometry.extend(_geo_house(node, cx_side, ed, el, ew_z,
+                                       "W" if side == "dong" else "E", norms, applied))
 
-        # 垂花门（仅一进→二进卡子墙正中、中轴线）：beimen 表示与前一院落的边界，门道南北贯通
+        # 院墙上的门本体（不挂在任何建筑上）：门道南北贯通，落在本院北/南界。
         enc = p["c"].get("enclosure", {})
-        if enc.get("beimen"):
-            gz = zc + d / 2                         # 嵌在卡子墙缺口处(本院北墙)
-            geometry.extend(_geo_chuihua(gz, w, _gate_role(enc["beimen"], "enclosure.beimen"), norms))
-        if enc.get("nanmen"):
-            gz = zc - d / 2
-            geometry.extend(_geo_chuihua(gz, w, _gate_role(enc["nanmen"], "enclosure.nanmen"), norms))
+        for slot, z_edge in (("beimen", zc + d / 2), ("nanmen", zc - d / 2)):
+            if enc.get(slot):
+                grole = _gate_role(enc[slot], "enclosure.%s" % slot)
+                geometry.extend(_geo_gate_standalone(grole, z_edge, norms, _form_of(applied, grole)))
 
-        # 围合构件（实体）：游廊 / 影壁
-        # 注：游廊分支当前**不启用** —— 各进 peripheral 已不再声明 youlang（留待加细节阶段讨论形制与归属）。
-        #     分支与其实现 _geo_youlang 一并保留，便于届时直接恢复，不要当成死代码删掉。
+        # 围合构件（实体）：按词条声明的形体原型分派，代码不认角色名。
         for per in (p["c"].get("peripheral") or []):
             if not isinstance(per, dict):
                 continue
             prole = per.get("role")
-            if prole == "youlang":
-                geometry.extend(_geo_youlang(w, nd, zc, d, norms))
-            elif prole == "yingbi":
-                geometry.append(_geo_yingbi(w, sd, zc, d, norms))
+            kind = _form_of(applied, prole).get("kind")
+            if kind == "colonnade":
+                geometry.extend(_geo_colonnade(prole, w, nd, zc, d, norms))
+            elif kind == "screen-wall":
+                geometry.append(_geo_screen_wall(prole, w, sd, zc, d, norms))
+            elif kind == "void":
+                pass                       # 声明为虚空者不产构件（如庭院）
+            else:
+                raise ValueError(
+                    "图谱缺陷：附属构件 %r 的形体原型 %r ④ 不认识（dict.%s.form.kind 缺失或非法）"
+                    % (prole, kind, prole))
 
         # 院墙环（boundarySegmentRealization）：先画完整一圈墙、门(gate)开缺；
         # 贴边建筑（后檐墙/山墙）的实现不在此预判——统一交给末尾 _resolve_boundary 去重。
         if p["c"].get("perimeter"):
-            geometry.extend(_geo_wall_ring(p["c"], w, zc, d, norms, draw_south=(idx == 0)))
+            geometry.extend(_geo_wall_ring(p["c"], w, zc, d, norms, applied,
+                                           draw_south=(idx == 0), wall_kinds=wall_kinds,
+                                           ring_kinds=ring_kinds, wall_role=wall_role))
 
-    # 边界去重：同一条墙线上建筑墙优先于独立院墙(yuanqiang)，被覆盖的院墙段按区间相减掉。
-    resolved = _resolve_boundary(geometry, norms)
+    # 边界去重：同一条墙线上建筑墙优先于独立院墙，被覆盖的院墙段按区间相减掉。
+    resolved = _resolve_boundary(geometry, norms, wall_role)
     # 兜底闸：形状闸只认得住「有没有 courtyards」，认不住「courtyards 里全是空壳」。
     # 算不出构件一律报错，保持「绝不静默返回 []」这条不变式对整个函数成立。
     if not resolved:
@@ -325,9 +399,12 @@ def build_tour_path(instance, comps=None):
     # 巡游中文名同样只引用实例图谱快照（自动化端不回读盘包）。
     _tour_labels = _labels_from_applied(instance.get("appliedDict"))
 
-    # 宅门在东南角、不在中轴：门道中心 x 直接取实际构件里 zhaimen 的中心（避免公式两处实现漂移）
+    # 对外宅门在角上、不在中轴：门道中心 x 直接取实际构件里**该门角色**的中心
+    # （避免公式两处实现漂移）。门角色取自图谱声明，代码不硬编任何门名。
+    _enc0 = (plotted[0]["c"].get("enclosure") or {}) if plotted else {}
+    _outer_gate = (((_enc0.get("nan") or {}).get("gate")) or {}).get("role")
     gxs = [g.get("center", {}).get("x", 0.0)
-           for g in (comps or []) if g.get("role") == "zhaimen"]
+           for g in (comps or []) if _outer_gate and g.get("role") == _outer_gate]
     gate_x = round((min(gxs) + max(gxs)) / 2.0, 3) if gxs else 0.0
 
     path = []
@@ -434,17 +511,19 @@ def _geo_room(role, cx, cz, W, H, D, open_side=None, norms=None, spec=None):
     传列表（如 ['S','N']）可表达「贯通门道」：南北双向开口。
     墙/顶厚度 t 取自 norms.room.thickness（原代码常量 WALL_THICKNESS）。
 
-    底部构件：若 norms.<role>.taiming 已声明（＝图谱声明该角色有台基，对照类型图谱
-    structs 是否含 taiji），则生成为「台基」构件——台明高取其值、自墙面线外扩
-    norms.room.taimingOutset；未声明则回落为原「地面」。
-    （原「地面」是 dict.构件 里没有的构件名，改判为 taiji 后台基与图谱构件表自洽。）
+    底部构件：若 norms.<role>.taiming 已声明（＝知识包声明该角色有台基），则生成
+    `norms.room.baseRole` 所指的底部构件（知识包当前指向台基）——台明高取其值、自墙面线
+    外扩 norms.room.taimingOutset；未声明则回落为「该建筑自身 role 的地面」。
+    （原「地面」是 dict.构件 里没有的构件名，改判为台基后台基与图谱构件表自洽；
+      baseRole 原为代码里的 "taiji" 字面量，现由知识包声明。）
     """
     t = float(_norms_get(norms, ("room", "thickness"), "房间墙/顶/地厚"))
     tm = _spec_get(spec, norms, role, "taiming")
     if tm:
         tm = float(tm)
         outset = float(_norms_get(norms, ("room", "taimingOutset"), "台基外扩"))
-        base = _geo_slab("taiji", cx, tm / 2, cz, W + 2 * outset, tm, D + 2 * outset)
+        base_role = _norms_get(norms, ("room", "baseRole"), "房间底部构件角色")
+        base = _geo_slab(base_role, cx, tm / 2, cz, W + 2 * outset, tm, D + 2 * outset)
     else:
         tm = t
         base = _geo_slab(role, cx, t / 2, cz, W, t, D)      # 无台基角色：回落为地面
@@ -524,148 +603,135 @@ def _geo_front_wall(role, cx, cz, W, H, D, t, wall_h, floor_top, roof_bot, open_
     return out
 
 
-def _geo_wing(cx, w, depth, zc, role_obj, open_side, norms):
-    """南北向屋翼（正房/倒座/后罩）：长边沿 X（面阔），厚沿 Z（进深）。
+def _geo_house(node, cx, W, D, zc, open_side, norms, applied):
+    """一栋房屋（北/南/东/西任一朝向）：按**图谱声明 + 知识包形体声明**分派。
 
-    房间=围合结构，朝庭院一侧留敞口。open_side 由调用方按房屋在院子里的位置给定
-    （位于北侧者朝南开口、南侧者朝北）——这是几何事实，不再靠角色名硬判。
-    高度取自该栋建筑自带 height（回落 norms.<role>.height；原代码常量 WING_HEIGHT）。
+    代码不认任何角色名，只看节点声明了什么：
+      · 节点带 `gate`（声明了嵌在它身上的门）→ 带门道的房屋（门道落哪端由门的 form.at 给）
+      · 节点带 `chuantang: true`            → 明间前后贯通的房屋
+      · 其余                                → 普通房间（朝院一侧留门洞）
+
+    原先是三个按角色名硬判的分支（_geo_wing / _geo_daozuo / _geo_back_gate），
+    现已收成一个通用入口——「后门在西北角、宅门在东南角」这类事实全在知识包。"""
+    role = node.get("role")
+    H = _role_height(norms, role, node)
+    gate = node.get("gate")
+    gate_role = gate.get("role") if isinstance(gate, dict) else None
+    if gate_role:
+        gf = _form_of(applied, gate_role)
+        if gf.get("kind") != "gate-passage":
+            raise ValueError("图谱缺陷：门 %r 的形体原型应为 gate-passage，实际 %r"
+                             % (gate_role, gf.get("kind")))
+        return _geo_gate_house(cx, W, D, zc, node, gate_role, open_side, norms, gf)
+    if node.get("chuantang"):
+        return _geo_chuantang(cx, W, D, zc, node, norms)
+    return _geo_room(role, cx, zc, W, H, D, open_side, norms, node)
+
+
+def _geo_gate_house(cx, W, D, zc, node, gate_role, open_side, norms, gate_form):
+    """带门道的房屋：整排房拆成「一段普通房间 + 一端门道间(± 门楼)」。
+
+    门道落在哪一端由知识包声明（`gate_form["at"]`），代码只按 at 做通用摆放：
+      east-end → 门道贴东端、留 margin 白  ；west-end → 贴西端、留 margin 白
+    是否带门楼由 `gate_form["tower"]` 声明；数值（面阔/高/留白）取自 norms.<门角色>。
+
+    这就是「宅门在东南角、后门在西北角」这两条风格的**唯一事实源**——
+    原先它们是 _geo_daozuo / _geo_back_gate 两个函数里的加减号。
     """
-    role = role_obj.get("role")
-    return _geo_room(role, cx, zc, w, _role_height(norms, role, role_obj), depth, open_side, norms, role_obj)
-
-
-def _geo_daozuo(cx, w, sd, zc, role_obj, norms, has_gate):
-    """倒座房：最外院(含宅门)拆为「西段普通倒座房 + 东端大门间(门道+门楼)」；
-    非最外院则整排普通倒座房。④ 本职：围合结构算清，⑤ 不过问空心。
-
-    - 西段：普通倒座房，朝北('N')留门洞，居中偏西。
-    - 东端大门间：门道(朝东'E'留大门洞)+ 抬高门楼(屋顶高于普通房)，位于院落东南角。
-    """
-    if not has_gate:
-        return _geo_wing(cx, w, sd, zc, role_obj, "N", norms)
-    role = role_obj.get("role")
-    room_h = _role_height(norms, role, role_obj)          # 门道高 = 同排普通房高
-    gs = round(float(_norms_get(norms, ("zhaimen", "gateSpan"), "大门门道面阔")), 3)
-    gh = round(float(_norms_get(norms, ("zhaimen", "height"), "大门门楼高")), 3)
-    margin = float(_norms_get(norms, ("zhaimen", "eastMargin"), "大门东侧与院墙留白"))
-    gs = round(min(gs, w - 0.6), 3)                       # 大门段不超倒座房总面阔
-    gate_center = round(cx + (w / 2 - gs / 2 - margin), 3)  # 东南角留白
-    seg_right = gate_center - gs / 2                      # 西段右边界（=门左缘）
-    x_main = round((-w / 2 + seg_right) / 2, 3)
-    w_main = round(seg_right + w / 2, 3)
-    comps = []
-    # 西段普通倒座房（朝北留门洞，与内院相对）
-    comps.extend(_geo_room(role, x_main, zc, w_main, room_h, sd, "N", norms, role_obj))
-    # 东端大门：门道（南=街门、北=内院，双向贯通）+ 门楼（屋顶抬高）
-    comps.extend(_geo_room("zhaimen", gate_center, zc, gs, room_h, sd, ["S", "N"], norms))
-    comps.extend(_geo_gate_tower("zhaimen", gate_center, zc, gs, room_h, gh, sd, norms))
+    role = node.get("role")
+    room_h = _role_height(norms, role, node)
+    at = gate_form.get("at")
+    if at not in ("east-end", "west-end"):
+        raise ValueError("图谱缺陷：门 %r 的 form.at=%r 不能嵌在房屋上（只支持 "
+                         "east-end / west-end；居中的门用 beimen/nanmen 槽位）" % (gate_role, at))
+    gs = round(min(float(_norms_get(norms, (gate_role, "gateSpan"), "门道面阔")), W - 0.6), 3)
+    margin = float((norms.get(gate_role) or {}).get("margin", 0.0))
+    sign = 1.0 if at == "east-end" else -1.0
+    gate_center = round(cx + sign * (W / 2 - gs / 2 - margin), 3)
+    # 剩余段（门道之外的那一段普通房间）
+    a, b = cx - W / 2, cx + W / 2
+    lo, hi = (a, gate_center - gs / 2) if at == "east-end" else (gate_center + gs / 2, b)
+    comps = list(_geo_room(role, round((lo + hi) / 2, 3), zc, round(hi - lo, 3), room_h, D,
+                           open_side, norms, node))
+    # 门道：南北贯通（临街 ↔ 院内），高 = 同排普通房高
+    comps.extend(_geo_room(gate_role, gate_center, zc, gs, room_h, D, ["S", "N"], norms))
+    if gate_form.get("tower"):
+        gh = float(_norms_get(norms, (gate_role, "height"), "门楼高"))
+        comps.extend(_geo_gate_tower(gate_role, gate_center, zc, gs, room_h, gh, D, norms))
     return comps
 
 
-def _geo_back_gate(cx, w, depth, zc, role_obj, gate_role, norms):
-    """末进北房（后罩房）带后门：拆为「东段普通后罩房 + 西端后门间(南北贯通)」。
+def _geo_chuantang(cx, W, D, zc, node, norms):
+    """明间（中央开间）前后贯通的做法：拆成「左右尽间(朝院内开敞) + 中央明间(南北贯通门道)」。
 
-    与 _geo_daozuo（倒座房带宅门）同法、东西对称，两点差异：
-      · 门在西端（西北角）而非东端——见 rules.position.houmen：后门开在院落西北角。
-      · 不带门楼：后门是「一间改门道」的随墙小门，门道高 = 同排后罩房高（不单列 height）。
-    门洞的开缺在 _geo_wall_ring 的 ns_wall(gate="houmen") 分支里同步做——否则墙环会把
-    这段贯通门道堵死（门道北面本就是敞口，没有建筑墙可供 _resolve_boundary 替换）。
+    ④ 本职：把该栋拆成 3 个开间子构件；⑤ 实心体素化即可。
+    门道方向由图谱的 `chuantang` 标记驱动（不认角色名）。
     """
-    role = role_obj.get("role")
-    room_h = _role_height(norms, role, role_obj)          # 门道高 = 同排普通房高
-    gs = round(float(_norms_get(norms, ("houmen", "gateSpan"), "后门门道面阔")), 3)
-    margin = float(_norms_get(norms, ("houmen", "westMargin"), "后门西侧与院墙留白"))
-    gs = round(min(gs, w - 0.6), 3)                       # 后门段不超后罩房总面阔
-    gate_center = round(cx - (w / 2 - gs / 2 - margin), 3)  # 西北角留白
-    seg_left = gate_center + gs / 2                      # 东段左边界（=门右缘）
-    x_main = round((seg_left + w / 2) / 2, 3)
-    w_main = round(w / 2 - seg_left, 3)
+    role = node.get("role")
+    if not role:
+        raise ValueError("图谱缺陷：声明 chuantang 的建筑缺 role（穿堂是某栋的做法，不是独立对象）")
+    H = _role_height(norms, role, node)
+    miankuo = _dim(node, "miankuo", 0)
+    bay = (W / miankuo) if miankuo else W            # 每间面阔(米)
+    central = min(bay, W * 0.4)                      # 中央明间，作穿堂
+    side = (W - central) / 2
     comps = []
-    comps.extend(_geo_room(role, x_main, zc, w_main, room_h, depth, "S", norms, role_obj))
-    comps.extend(_geo_room(gate_role, gate_center, zc, gs, room_h, depth, ["S", "N"], norms))
+    if side > 0.2:
+        comps.extend(_geo_room(role, cx - (central / 2 + side / 2), zc, side, H, D, "S", norms, node))
+        comps.extend(_geo_room(role, cx + (central / 2 + side / 2), zc, side, H, D, "S", norms, node))
+    comps.extend(_geo_room(role, cx, zc, central, H, D, ["S", "N"], norms, node))
     return comps
 
 
-def _geo_dongxi(cx, el, ed, zc, role_obj, norms):
-    """东西厢：长边沿 Z（面阔），厚沿 X（进深）。
-    房间=围合结构，朝庭院中心留敞口：东厢朝西('W')，西厢朝东('E')。
-    高度取自该栋建筑自带 height（回落 norms.<role>.height；原代码常量 WING_HEIGHT）。"""
-    role = role_obj.get("role")
-    open_side = "W" if cx > 0 else "E"
-    return _geo_room(role, cx, zc, ed, _role_height(norms, role, role_obj), el, open_side, norms, role_obj)
-
-
-def _xiangfang_length(role_obj, norms, d, nd, sd, modus):
-    """④ 厢房沿庭院方向(Z)长度：读 rules.layout.xiangfang 约束，不再硬编码填满庭院。
+def _wing_length(node, norms, d, nd, sd, modus):
+    """沿庭院方向(Z)长度：读 `rules.norms.layout.wing` 约束，不硬编码填满庭院。
 
     - lengthMode=miankuo：长度取自身面阔(间数×modus)，而非 d-nd-sd
-    - aisle：南北与正房/倒座各留通道，使中央庭院完整保留
-    - zAlign=center 由调用方 ew_z 实现（ew_z 已是庭院净深中心）
+    - aisle：南北与两侧房屋各留通道，使中央庭院完整保留
+    - zAlign=center 由调用方（ew_z = 庭院净深中心）实现
     """
-    layout = _norms_get(norms, ("layout", "xiangfang"), "厢房布局约束（lengthMode/aisle/zAlign）")
+    layout = _norms_get(norms, ("layout", "wing"), "翼房布局约束（lengthMode/aisle/zAlign）")
     aisle = float(layout.get("aisle", 0))
-    own = float(_dim(role_obj, "miankuo", 0)) * modus  # 自身面阔(间数×modus)
-    court_net = d - nd - sd                          # 庭院净深
+    own = float(_dim(node, "miankuo", 0)) * modus     # 自身面阔(间数×modus)
+    court_net = d - nd - sd                           # 庭院净深
     return round(min(own, court_net - 2 * aisle), 3)
 
 
-def _geo_zhengfang_chuantang(cx, w, depth, zc, role_obj, norms):
-    """正房明间(中央开间)为穿堂：南北双向开门，连通内院与后院；左右次间为普通房间(仅朝南开敞)。
+def _geo_gate_standalone(role, cz, norms, form):
+    """独立门屋（不挂在任何建筑上的门本体，如卡子墙正中的垂花门）。
 
-    ④ 本职：把正房拆成 3 个开间子构件 —— 左右次间(朝南留门洞) + 中央明间(南北贯通门道)。
-    门道方向由 KB 的 chuantang 标记驱动（即正房明间过厅），⑤ 实心体素化即可。
+    ④ 本职：门道为围合结构(南北开门)，门楼（若声明）为独立子构件；⑤ 实心体素化即可。
+    面阔 gs 取自 norms.<role>.gateSpan，与 _geo_wall_ring 在该侧开洞同源，
+    保证「门体宽 == 墙洞口宽」，两侧不留通缝。
     """
-    role = role_obj.get("role", "zhengfang")
-    H = _role_height(norms, role, role_obj)
-    miankuo = _dim(role_obj, "miankuo", 5)
-    bay = (w / miankuo) if miankuo else w            # 每间面阔(米)
-    central = min(bay, w * 0.4)                       # 中央明间(约 1 间)，作穿堂
-    side = (w - central) / 2
-    comps = []
-    if side > 0.2:
-        comps.extend(_geo_room(role, cx - (central / 2 + side / 2), zc, side, H, depth, "S", norms, role_obj))
-        comps.extend(_geo_room(role, cx + (central / 2 + side / 2), zc, side, H, depth, "S", norms, role_obj))
-    # 中央明间 = 穿堂（南北贯通）
-    comps.extend(_geo_room(role, cx, zc, central, H, depth, ["S", "N"], norms, role_obj))
-    return comps
-
-
-def _geo_chuihua(zc, w, role, norms):
-    """垂花门(二门)：卡子墙正中、中轴线，门道南北贯通(门洞)，门楼略抬高。
-
-    ④ 本职：门道为围合结构(南北开门)，门楼独立子构件；⑤ 实心体素化即可。
-    不再用实心方块占位（此前错误）。
-    门道面阔 gs 取自 norms.chuihuamen.gateSpan，与 _geo_wall_ring 开洞同源，
-    保证「门体宽 == 卡子墙洞口宽」，两侧不留通缝。
-    """
-    gs = round(float(_norms_get(norms, ("chuihuamen", "gateSpan"), "垂花门面阔")), 3)
-    gh = round(float(_norms_get(norms, ("chuihuamen", "height"), "垂花门楼高")), 3)
-    depth = float(_norms_get(norms, ("chuihuamen", "depth"), "垂花门道进深"))
+    gs = round(float(_norms_get(norms, (role, "gateSpan"), "门道面阔")), 3)
+    depth = float(_norms_get(norms, (role, "depth"), "门道进深"))
     base_h = float(_norms_get(norms, ("room", "heightDefault"), "门道基准高"))
-    comps = _geo_room(role, 0, zc, gs, base_h, depth, ["S", "N"], norms)   # 门道南北贯通
-    if gh > base_h + 0.05:
-        comps.extend(_geo_gate_tower(role, 0, zc, gs, base_h, gh, depth, norms))   # 门楼略高
+    comps = list(_geo_room(role, 0, cz, gs, base_h, depth, ["S", "N"], norms))   # 门道南北贯通
+    if form.get("tower"):
+        gh = round(float(_norms_get(norms, (role, "height"), "门楼高")), 3)
+        if gh > base_h + 0.05:
+            comps.extend(_geo_gate_tower(role, 0, cz, gs, base_h, gh, depth, norms))   # 门楼略高
     return comps
 
 
-def _geo_youlang(w, nd, zc, d, norms):
-    """游廊：正房前檐的柱廊——柱列 + 廊顶，通透无实墙（抄手游廊的直段）。
+def _geo_colonnade(role, w, nd, zc, d, norms):
+    """柱廊（形体原型 colonnade）：柱列 + 廊顶，通透无实墙。
 
-    【当前不启用】各进 peripheral 未声明 youlang，故本函数暂不产生体素；
-    留待「加细节」阶段确定抄手游廊的形制与归属后恢复。保留实现，勿删。
+    【当前不启用】各进 peripheral 未声明该形体，故本函数暂不产生体素；
+    留待「加细节」阶段确定形制与归属后，在知识包 peripheral 里声明即可启用（代码零改动）。
 
     廊与院墙不同：不围合，只提供有顶通道。中轴穿堂口按 norms.door.width 断开，
-    让出正房明间南北通行的门道（否则就成了堵在正房前的一堵墙）。
-    尺寸全部取自 norms.peripheral.youlang（原为代码内联魔法数字）。
+    让出明间南北通行的门道（否则就成了堵在正房前的一堵墙）。
+    尺寸全部取自 norms.peripheral.<role>。
     """
-    cfg = _norms_get(norms, ("peripheral", "youlang"), "游廊尺寸")
+    cfg = _norms_get(norms, ("peripheral", role), "%s 尺寸（形体参数）" % role)
     H = float(cfg["height"])
     depth = float(cfg["depth"])
     span_ratio = float(cfg["spanRatio"])
     col_spacing = float(cfg["colSpacing"])
     top_h = float(cfg["roofThickness"])
-    col = float(_norms_get(norms, ("room", "thickness"), "游廊柱截面"))
+    col = float(_norms_get(norms, ("room", "thickness"), "廊柱截面"))
     gap = float(_norms_get(norms, ("door", "width"), "穿堂口宽"))
     out = []
     zpos = zc + d / 2 - nd - depth / 2
@@ -674,22 +740,20 @@ def _geo_youlang(w, nd, zc, d, norms):
         seg = b - a
         if seg <= 0.05:
             continue
-        # 廊顶：薄板，跨该段
-        out.append(_geo_slab("youlang", (a + b) / 2.0, H - top_h / 2.0, zpos, seg, top_h, depth))
-        # 柱列：两端 + 按 colSpacing 均布
-        n = max(2, int(round(seg / col_spacing)) + 1)
+        out.append(_geo_slab(role, (a + b) / 2.0, H - top_h / 2.0, zpos, seg, top_h, depth))
+        n = max(2, int(round(seg / col_spacing)) + 1)         # 柱列：两端 + 按 colSpacing 均布
         for i in range(n):
             x = a + seg * i / (n - 1)
-            out.append(_geo_slab("youlang", x, (H - top_h) / 2.0, zpos, col, H - top_h, col))
+            out.append(_geo_slab(role, x, (H - top_h) / 2.0, zpos, col, H - top_h, col))
     return out
 
 
-def _geo_yingbi(w, sd, zc, d, norms):
-    """影壁：入口处的屏墙。尺寸取自 norms.peripheral.yingbi（原为代码内联魔法数字）。"""
-    cfg = _norms_get(norms, ("peripheral", "yingbi"), "影壁尺寸")
+def _geo_screen_wall(role, w, sd, zc, d, norms):
+    """独立屏墙（形体原型 screen-wall，如影壁）。尺寸取自 norms.peripheral.<role>。"""
+    cfg = _norms_get(norms, ("peripheral", role), "%s 尺寸（形体参数）" % role)
     bw, H, thick = float(cfg["width"]), float(cfg["height"]), float(cfg["depth"])
     zpos = zc - d / 2 + sd + float(cfg["zOffset"])
-    return {"role": "yingbi",
+    return {"role": role,
             "center": {"x": round(w / 2 - bw / 2 - float(cfg["xInset"]), 3),
                        "y": H / 2, "z": round(zpos, 3)},
             "size": {"w": bw, "h": H, "d": thick}}
@@ -702,83 +766,87 @@ def _geo_wall(cx, cz, width_x, H, depth_z, role):
             "size": {"w": round(width_x, 3), "h": H, "d": round(depth_z, 3)}}
 
 
-def _geo_wall_ring(c, w, zc, d, norms, draw_south=True):
+def _geo_wall_ring(c, w, zc, d, norms, applied, draw_south=True, wall_kinds=None,
+                   ring_kinds=None, wall_role=None):
     """院墙环：先实例化「完整一圈墙」，不预判任何建筑位置（boundarySegmentRealization）。
-    - 北/南按 gate 开缺（zhaimen 东南角 / chuihuamen 中段 / houmen 西北角）。穿堂不在此开缺（它不是门）。
+    - 北/南按 gate 开缺：门道落哪端、多宽，全读**门的 form（at）+ norms.<门角色>**，
+      代码里不出现任何门角色名（原先是一串 `gate == "zhaimen"/"chuihuamen"/"houmen"`）。
     - 东西墙先画整段；贴边建筑（后檐墙/山墙）的占位由 _resolve_boundary 统一去重。
     - 每进只承担自己的北界；整院南外墙仅由最南一进(idx0)承担。
-    - 图谱 ring 保留 provider 语义声明（可逆），几何实现不再消费它做预判。
+    - 墙高/厚按墙种取：该侧 ring.<side>.kind 属「基底院墙」类（appliedRules.wall.taxonomy
+      里 appliesTo=ringBase 的组）时，取 appliedRules.wall.kinds[kind] 的 height/thickness；
+      否则回落 norms.wall。**houyanqiang 属建筑用墙**，其 thickness(0.3) 是建筑后檐墙的、
+      不是院墙的，用在基底院墙上会在被 _resolve_boundary 部分替换后残留出薄墙。
     """
     ring = c.get("ring", {}) or {}
-    H = float(_norms_get(norms, ("wall", "height"), "院墙高"))
-    T = float(_norms_get(norms, ("wall", "thickness"), "院墙厚"))
     t = float(_norms_get(norms, ("room", "thickness"), "墙面线偏移基准（取房间墙厚）"))
+
+    def side_h_t(side):
+        """该侧墙种 -> (H, T)；非「基底院墙」类、或该 kind 无声明，即回落 norms.wall。"""
+        kind = (ring.get(side) or {}).get("kind")
+        spec = (wall_kinds or {}).get(kind) if (kind and kind in (ring_kinds or set())) else None
+        if not isinstance(spec, dict):
+            spec = {}
+        h, th = spec.get("height"), spec.get("thickness")
+        H = float(h) if h is not None else float(_norms_get(norms, ("wall", "height"), "院墙高"))
+        T = float(th) if th is not None else float(_norms_get(norms, ("wall", "thickness"), "院墙厚"))
+        return H, T
+
     half = w / 2 - t / 2                     # 东西墙中心 X（与厢房外墙同一墙面线）
-    zN = zc + d / 2 - t / 2                 # 北墙与正房/后罩房后檐墙共线
-    zS = zc - d / 2 + t / 2                 # 南墙与倒座后檐墙共线
+    zN = zc + d / 2 - t / 2                 # 北墙与北房后檐墙共线
+    zS = zc - d / 2 + t / 2                 # 南墙与南房后檐墙共线
     out = []
 
-    def ns_wall(zc_wall, gate):
-        if gate == "zhaimen":
-            gs = float(_norms_get(norms, ("zhaimen", "gateSpan"), "大门门道面阔"))
-            gx = round(w / 2 - gs / 2 - float(_norms_get(norms, ("zhaimen", "eastMargin"), "大门东侧留白")), 3)
-            gh = gs / 2
-            l_seg = (gx - gh) - (-half)
-            if l_seg > 0.01:
-                out.append(_geo_wall(-half + l_seg / 2, zc_wall, l_seg, H, T, "yuanqiang"))
-            r_seg = half - (gx + gh)
-            if r_seg > 0.01:
-                out.append(_geo_wall((gx + gh) + r_seg / 2, zc_wall, r_seg, H, T, "yuanqiang"))
-        elif gate == "chuihuamen":
-            # 垂花门门洞宽 = 门体面阔(gateSpan)，与宅门同法从 norms 取。
-            # 穿堂不在此开缺：它的门洞由 _geo_zhengfang_chuantang 在正房明间上生成
-            # （正房被拆为「左右次间 + 中央明间南北贯通」）；且本函数仅在首院画南墙(draw_south)，
-            # 非首院的南界由上一进北房后檐墙承担，本就轮不到墙环开缺。
-            gs = float(_norms_get(norms, ("chuihuamen", "gateSpan"), "垂花门面阔"))
-            gh = gs / 2
-            l_seg = (0 - gh) - (-half)
-            if l_seg > 0.01:
-                out.append(_geo_wall(-half + l_seg / 2, zc_wall, l_seg, H, T, "yuanqiang"))
-            r_seg = half - (0 + gh)
-            if r_seg > 0.01:
-                out.append(_geo_wall(gh + r_seg / 2, zc_wall, r_seg, H, T, "yuanqiang"))
-        elif gate == "houmen":
-            # 后门：门洞开在**西端**（西北角），与宅门的东南角相对。此处必须开缺——
-            # 后门间北面本就是敞口（南北贯通），没有建筑墙可供 _resolve_boundary 替换，
-            # 若墙环照整段画，门道会被外围围墙堵死。
-            gs = float(_norms_get(norms, ("houmen", "gateSpan"), "后门门道面阔"))
-            gx = round(-(w / 2 - gs / 2 - float(_norms_get(norms, ("houmen", "westMargin"),
-                                                          "后门西侧留白"))), 3)
-            gh = gs / 2
-            l_seg = (gx - gh) - (-half)
-            if l_seg > 0.01:
-                out.append(_geo_wall(-half + l_seg / 2, zc_wall, l_seg, H, T, "yuanqiang"))
-            r_seg = half - (gx + gh)
-            if r_seg > 0.01:
-                out.append(_geo_wall((gx + gh) + r_seg / 2, zc_wall, r_seg, H, T, "yuanqiang"))
+    def ns_wall(zc_wall, gate, side):
+        H, T = side_h_t(side)
+        if not gate:
+            out.append(_geo_wall(0, zc_wall, w, H, T, wall_role))
+            return
+        # 门洞宽 = 门体面阔(gateSpan)，与 _geo_gate_house / _geo_gate_standalone 同源，
+        # 保证「门体宽 == 墙洞口宽」，两侧不留通缝。
+        gs = float(_norms_get(norms, (gate, "gateSpan"), "%s 门道面阔" % gate))
+        ghalf = gs / 2
+        at = _form_of(applied, gate).get("at") or "center"
+        margin = float((norms.get(gate) or {}).get("margin", 0.0))
+        if at == "east-end":
+            gx = round(w / 2 - gs / 2 - margin, 3)
+        elif at == "west-end":
+            gx = round(-(w / 2 - gs / 2 - margin), 3)
+        elif at == "center":
+            gx = 0.0
         else:
-            out.append(_geo_wall(0, zc_wall, w, H, T, "yuanqiang"))
+            raise ValueError("图谱缺陷：门 %r 的 form.at=%r 非法（东端 east-end / 西端 "
+                             "west-end / 居中 center）" % (gate, at))
+        l_seg = (gx - ghalf) - (-half)
+        if l_seg > 0.01:
+            out.append(_geo_wall(-half + l_seg / 2, zc_wall, l_seg, H, T, wall_role))
+        r_seg = half - (gx + ghalf)
+        if r_seg > 0.01:
+            out.append(_geo_wall((gx + ghalf) + r_seg / 2, zc_wall, r_seg, H, T, wall_role))
 
     # 北墙：本进与后一进的分界（最北一进的北墙 = 整院北外墙）
-    ns_wall(zN, (ring.get("bei") or {}).get("gate"))
+    ns_wall(zN, (ring.get("bei") or {}).get("gate"), "bei")
     # 南墙：仅最南一进(idx0)画 —— 即整院南外墙；其余进的南界由前一进北墙承担
     if draw_south:
-        ns_wall(zS, (ring.get("nan") or {}).get("gate"))
+        ns_wall(zS, (ring.get("nan") or {}).get("gate"), "nan")
     # 东西墙：先画整段；贴边建筑的占位由 _resolve_boundary 统一去重
-    out.append(_geo_wall(half, zc, T, H, d - t, "yuanqiang"))
-    out.append(_geo_wall(-half, zc, T, H, d - t, "yuanqiang"))
+    Hd, Td = side_h_t("dong")
+    out.append(_geo_wall(half, zc, Td, Hd, d - t, wall_role))
+    Hx, Tx = side_h_t("xi")
+    out.append(_geo_wall(-half, zc, Tx, Hx, d - t, wall_role))
     return out
 
 
-def _resolve_boundary(components, norms):
+def _resolve_boundary(components, norms, wall_role):
     """边界墙去重（boundarySegmentRealization 的几何实现）。
 
-    同一条共线墙线上，建筑墙(后檐墙/山墙, pri=1)优先于独立院墙(yuanqiang, pri=0)：
-    把被建筑覆盖的区间从 yuanqiang 段中【区间相减】掉（非整段删），保留真正空档。
+    同一条共线墙线上，建筑墙(后檐墙/山墙, pri=1)优先于独立院墙(wall_role, pri=0)：
+    把被建筑覆盖的区间从独立院墙段中【区间相减】掉（非整段删），保留真正空档。
 
     建筑自身的门/窗洞口（由矮薄的门楣标记，见 _geo_front_wall）一并算作「建筑覆盖段」——
     洞口是建筑的开口，独立院墙不得残留在洞口中（否则会把穿堂/门洞堵死）。
     resolver 只看真实几何覆盖，不预判任何建筑位置——增删建筑时该侧院墙自动补/让。
+    wall_role = appliedRules.wall.ref（独立院墙的空间角色 key），不再硬编字面量。
     """
     thin = float(_norms_get(norms, ("room", "thickness"), "细墙/门楣判定基准")) + 0.15   # +0.15 为几何容差，非规制值
     walls = []                                    # [orient, line, lo, hi, pri, idx]
@@ -796,10 +864,10 @@ def _resolve_boundary(components, norms):
             orient, line = "H", c.get("z", 0)
             lo, hi = c.get("x", 0) - w / 2, c.get("x", 0) + w / 2
         if h <= 1.5:                              # 矮薄块 = 门楣(洞口顶)：记录该洞口区间
-            if g.get("role") != "yuanqiang":
+            if g.get("role") != wall_role:
                 holes_extra.append([orient, line, lo, hi])
             continue
-        pri = 0 if g.get("role") == "yuanqiang" else 1
+        pri = 0 if g.get("role") == wall_role else 1
         walls.append([orient, line, lo, hi, pri, i])
 
     groups = {}
@@ -863,13 +931,14 @@ def _merge_ivs(ivs):
 
 
 # ---------------- ⑤ 几何造型引擎：构件 -> 体素 BOX 清单 ----------------
-def _voxelize_component(g, vox, labels):
+def _voxelize_component(g, vox, labels, colors):
     """构件(连续几何) -> 体素 BOX 网格（构件 : box = 图像 : 像素）。
 
     纯几何转换：把传入的构件实心切成边长为 vox 的体素网格。构件本身是实心还是
     空心围合（如房间拆成的墙/顶/地子构件），由 ④ 几何计算引擎决定，⑤ 不过问。
-    label 取自命名字典（labels 表由调用方一次取好，逐构件复用）；
+    label / color 均取自命名字典快照（两张表由调用方一次取好，逐构件复用）；
     color 由所属构件继承（点选任意体素都能识别其构件）。
+    表里缺该 role 即报图谱缺陷——图示色与中文名都是知识事实，代码不兜底。
     """
     role = g.get("role")
     c = g.get("center", {})
@@ -885,7 +954,10 @@ def _voxelize_component(g, vox, labels):
     y0 = c.get("y", 0) - H / 2
     z0 = c.get("z", 0) - D / 2
     label = _label_of(role, dflt=role, table=labels)
-    color = ROLE_COLORS.get(role, 0x999999)
+    if role not in colors:
+        raise ValueError("图谱缺陷：dict.json 缺词条 %r 的 color —— 图示色属知识事实，"
+                         "新增 role 须先在 dict.json 补 form/color" % (role,))
+    color = colors[role]
     out = []
     for i in range(nx):
         for j in range(ny):
@@ -904,7 +976,7 @@ def geometry_to_boxes(geometry, vox=VOXEL_SIZE, instance=None):
     """⑤ 几何造型引擎：构件 -> 体素 BOX 清单（真实多体素化，非 1 构件=1 box 占位）。
 
     选定 BOX 作为 MVP 表现基元，把每个构件按 VOXEL_SIZE 体素化成 box 网格。
-    label 取自命名字典（此处一次取表、逐构件复用），color 由所属构件继承。
+    label / color 均取自命名字典快照（此处一次取表、逐构件复用）。
     未来切 B-rep 只改此处，④ 不动。
     """
     # 入参形状闸 + 出口兜底闸：同 compute_geometry，保持「绝不静默返回 []」这条不变式。
@@ -919,12 +991,15 @@ def geometry_to_boxes(geometry, vox=VOXEL_SIZE, instance=None):
                          "compute_geometry 拿到构件清单，再调本工具")
     if not all(isinstance(g, dict) for g in geometry):
         raise ValueError("图谱缺陷：geometry 清单里含非对象项（构件须是对象）")
-    # ⑤ 中文名唯一来源：实例图谱自带的 appliedDict 快照（自动化端不回读盘包）。
-    # 独立调用未带 instance 时退化为空表，_label_of 的 dflt=role 兜底显示 role key。
-    labels = _labels_from_applied(instance.get("appliedDict")) if instance else {}
+    # ⑤ 中文名 / 图示色的唯一来源：实例图谱自带的 appliedDict 快照（自动化端不回读盘包）。
+    # 独立调用未带 instance 时表为空——label 退化为 role key 显示，但 color 会 fail-fast
+    # （缺知识时宁可不产出，也不静默涂一个假色）。
+    applied = instance.get("appliedDict") if instance else None
+    labels = _labels_from_applied(applied)
+    colors = _colors_from_applied(applied)
     boxes = []
     for g in geometry:
-        boxes.extend(_voxelize_component(g, vox, labels))
+        boxes.extend(_voxelize_component(g, vox, labels, colors))
     if not boxes:
         raise ValueError(
             "图谱缺陷：构件清单非空却算不出任何体素 —— 构件缺 center/size（零尺寸构件"

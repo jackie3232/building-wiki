@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>四合院体素预览</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#f2f1ee;
+            font:13px/1.5 system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+  #hud{position:fixed;left:12px;top:12px;z-index:9;background:rgba(255,255,255,.92);
+       border:1px solid #ddd;border-radius:8px;padding:8px 12px;color:#333;pointer-events:none}
+  #hud b{font-weight:600}
+  #hud span{color:#666}
+  #err{position:fixed;left:12px;bottom:12px;z-index:9;color:#a33;white-space:pre-wrap;
+       max-width:60vw;background:rgba(255,255,255,.92);border-radius:6px;padding:6px 10px}
+</style>
+</head>
+<body>
+<div id="hud"><b>四合院 · 体素预览</b><br><span id="stat">加载中…</span></div>
+<div id="err"></div>
+<script type="importmap">
+{ "imports": { "three": "/web/vendor/three.module.min.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from '/web/vendor/OrbitControls.js';
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xf2f1ee);
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 2000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+scene.add(new THREE.AmbientLight(0xffffff, 1.9));
+const dl = new THREE.DirectionalLight(0xffffff, 1.6);
+dl.position.set(30, 60, 20);
+scene.add(dl);
+const dl2 = new THREE.DirectionalLight(0xffffff, 0.5);
+dl2.position.set(-30, 20, -30);
+scene.add(dl2);
+
+try {
+  const boxes = await (await fetch('./out/boxes.json', { cache: 'no-store' })).json();
+
+  // 按 role 分组 -> 每类一个 InstancedMesh（同类同色）
+  const groups = {};
+  for (const b of boxes) (groups[b.role] ||= []).push(b);
+
+  const unit = new THREE.BoxGeometry(1, 1, 1);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion();
+  const v = new THREE.Vector3(), s = new THREE.Vector3();
+  for (const [role, list] of Object.entries(groups)) {
+    const im = new THREE.InstancedMesh(
+      unit, new THREE.MeshLambertMaterial({ color: list[0].color }), list.length);
+    list.forEach((b, i) => {
+      v.set(b.x, b.y, b.z);
+      s.set(b.w, b.h, b.d);
+      m4.compose(v, q, s);
+      im.setMatrixAt(i, m4);
+    });
+    im.instanceMatrix.needsUpdate = true;
+    scene.add(im);
+  }
+
+  const bb = new THREE.Box3().setFromObject(scene);
+  const c = bb.getCenter(new THREE.Vector3());
+  const size = bb.getSize(new THREE.Vector3());
+  controls.target.copy(c);
+  camera.position.copy(c).add(new THREE.Vector3(size.x * 0.9, size.z * 0.8, size.z * 1.15));
+  controls.update();
+
+  document.getElementById('stat').textContent =
+    boxes.length + ' 体素 · ' + Object.keys(groups).length + ' 类构件 · '
+    + size.x.toFixed(1) + '×' + size.z.toFixed(1) + ' m';
+} catch (e) {
+  document.getElementById('err').textContent = '加载失败：' + e
+    + '\n（先跑 preview.py 生成 out/boxes.json）';
+}
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+(function loop() {
+  requestAnimationFrame(loop);
+  controls.update();
+  renderer.render(scene, camera);
+})();
+</script>
+</body>
+</html>

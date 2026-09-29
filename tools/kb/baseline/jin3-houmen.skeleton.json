@@ -1,0 +1,60 @@
+{
+  "style": "siheyuan",
+  "jin": 3,
+  "courtyards": [
+    {
+      "sequence": 1,
+      "enclosure": {
+        "nan": {
+          "role": "daozuofang",
+          "gate": {
+            "role": "zhaimen"
+          }
+        },
+        "beimen": {
+          "role": "chuihuamen"
+        }
+      },
+      "perimeter": true,
+      "peripheral": [
+        {
+          "role": "yingbi"
+        }
+      ]
+    },
+    {
+      "sequence": 2,
+      "enclosure": {
+        "bei": {
+          "role": "zhengfang",
+          "chuantang": true
+        },
+        "dong": {
+          "role": "xiangfang"
+        },
+        "xi": {
+          "role": "xiangfang"
+        }
+      },
+      "perimeter": true
+    },
+    {
+      "sequence": 3,
+      "enclosure": {
+        "bei": {
+          "role": "houzhaofang",
+          "gate": {
+            "role": "houmen"
+          }
+        },
+        "dong": {
+          "role": "xiangfang"
+        },
+        "xi": {
+          "role": "xiangfang"
+        }
+      },
+      "perimeter": true
+    }
+  ]
+}

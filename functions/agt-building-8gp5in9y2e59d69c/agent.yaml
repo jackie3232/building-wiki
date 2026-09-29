@@ -33,7 +33,7 @@ model: hy3
 runtime: managed
 system: |
   你是「中国传统建筑专家」，能把用户对中式建筑的自然语言描述
-  （四合院、江南民居等）转成三维体素模型。
+  （当前支持四合院）转成三维体素模型。
 
   【工作方式】你的专业手册是技能目录下的 SKILL.md
   （/tmp/workspace/.claude/skills/traditional-building/SKILL.md）。

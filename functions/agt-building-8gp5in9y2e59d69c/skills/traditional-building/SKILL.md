@@ -1,6 +1,6 @@
 ---
 name: traditional-building
-description: 把用户对中国传统建筑的自然语言需求（四合院 / 江南民居 / …），转成「实例图谱」再算成 3D 体素模型。用于任何「建一座 N 进院 / 加个影壁 / 换个风格」这类建模请求。单专家多包：风格差异全部由知识包承担，技能本身不写死任何风格事实。
+description: 把用户对中国传统建筑的自然语言需求（当前支持四合院），转成「实例图谱」再算成 3D 体素模型。用于任何「建一座 N 进院 / 加个影壁 / 换个风格」这类建模请求。单专家多包：风格差异全部由知识包承担，技能本身不写死任何风格事实。
 ---
 
 # 中国传统建筑 · 实例图谱智能化（单专家 · 多包）
@@ -27,9 +27,9 @@ description: 把用户对中国传统建筑的自然语言需求（四合院 / �
 
 本技能支持多种风格（知识包），风格差异**全部在知识包里**，技能代码零风格事实。
 
-- **风格（style）由你推断**：从用户话术判断（如「四合院 / 北京院子」→ `siheyuan`，「江南 / 徽派 / 天井院」→ 对应包）。
+- **风格（style）由你推断**：从用户话术判断（如「四合院 / 北京院子」→ `siheyuan`）。**当前 `packs/` 下只有 `siheyuan` 一个包**——用户要的风格若无对应包，如实告知暂不支持，**不要臆造 style**（缺包会报「图谱缺陷：未知风格…」并列出可用包）。
 - 把推断出的风格写进骨架顶层字段 **`style`**（如 `"style": "siheyuan"`）。`assemble.mjs` 会据此加载 `packs/<style>/` 知识包。
-- 若用户没明说风格，默认 `siheyuan`（向后兼容）。
+- **`style` 是必填项**：装配器**不设默认风格**（默认风格字面量＝把具体建筑类型写进引擎，违反总纲 7 判据 1）。用户没明说风格时，你要**自行判断并在骨架里写明**——当前只有四合院一个包，所以默认写 `siheyuan`；但必须写出来，漏了会直接报错。
 - 可用风格清单 = 本技能 `packs/` 下的目录名。需要时先 `ls packs/` 确认有哪些包。
 
 ## 硬约束（违反即作废）
@@ -47,7 +47,7 @@ description: 把用户对中国传统建筑的自然语言需求（四合院 / �
 
 ```json
 {
-  "style": "siheyuan",            // ① 推断出的风格；省略则默认 siheyuan
+  "style": "siheyuan",            // ① 推断出的风格（**必填**，无默认值；漏了装配器直接报错）
   "jin": 3,
   "courtyards": [
     {
@@ -84,22 +84,27 @@ description: 把用户对中国传统建筑的自然语言需求（四合院 / �
 - `usage` —— 用途（如四进院第二进正位房作过厅）
 - `sequence.naming` —— 院名推导规则
 
+**下面这几段由装配器自动消费，你不需要读、更不要在骨架里声明**（它们决定的是「场景长什么样」，
+不是「你要摆什么」）：`sequence.courtRole`（哪一进算什么院：外院/内院/厅房院/后罩院/庭院）、
+`wall.assign`（每侧墙算什么墙种）、`norms`（全部规制数值：面阔/进深/高/台明/门洞/墙厚…）。
+你只给 role + 拓扑，这些一律由知识包与装配器补齐。
+
 ## 怎么装配
 
 你的工作目录（cwd）里已有这个 skill，路径固定：
 
 ```bash
 # 1) 先把骨架写成文件（例如 sk.json，含顶层 "style" 字段）
-# 2) 跑装配器（--style 默认取骨架里的 style，否则回退 siheyuan；--packs 默认脚本同目录 packs）
+# 2) 跑装配器（风格必给：取骨架里的 style，或用 --style 覆盖；--packs 默认脚本同目录 packs）
 node .claude/skills/traditional-building/assemble.mjs --style siheyuan --skeleton sk.json > instance.json
-# 也可省略 --style，由骨架 style 字段决定：
+# 也可省略 --style，由骨架 style 字段决定（二者必须有一个，缺了就报错）：
 node .claude/skills/traditional-building/assemble.mjs --skeleton sk.json > instance.json
 # 也支持 stdin：cat sk.json | node .claude/skills/traditional-building/assemble.mjs --style siheyuan
 ```
 
 ### CLI 只认三个参数
 
-`--packs`（默认脚本同目录 `packs/`）、`--style`（默认取骨架 `style`）、`--skeleton`。
+`--packs`（默认脚本同目录 `packs/`）、`--style`（骨架 `style` 的同义覆盖，二者必须有一个）、`--skeleton`。
 **传别的参数一律报错**（不静默忽略）——所以别自造开关。
 
 **变体靠骨架表达，不靠命令行**：用户说「不要影壁」，就把它从该进的 `peripheral` 里去掉；
@@ -108,8 +113,9 @@ node .claude/skills/traditional-building/assemble.mjs --skeleton sk.json > insta
 
 若路径不确定，先定位脚本：`find . -name assemble.mjs -path '*traditional-building*'`。
 
-输出 = **自包含实例图谱**（`meta` / `data` / `appliedRules` / `appliedDict`）。
-它自带本次用到的规则与字典，**下游不再需要知识包**。
+输出 = **自包含实例图谱**（`meta` / `data` / `appliedRules` / `appliedType` / `appliedDict`）。
+它把本风格知识中心**三件套整份**（dict 词汇层 / type 结构层 / rules 约束层）嵌进实例，
+**下游不再需要知识包**。
 
 ## 怎么出模型（全 Agent 形态）
 
@@ -131,7 +137,8 @@ node .claude/skills/traditional-building/upload_instance.mjs --file instance.jso
 
 它会在 MCP 侧读回实例 → 跑 ④ compute_geometry → 跑 ⑤ geometry_to_boxes →
 **返回体素 BOX 清单**（含坐标；harness 对超大输出会持久化为引用返回）。
-（④⑤ 是这一个工具的内部步骤，MCP 侧不重载知识包——它只吃实例图谱自带的 appliedRules/appliedDict 快照。
+（④⑤ 是这一个工具的内部步骤，MCP 侧不重载知识包——它只吃实例图谱自带的
+appliedRules / appliedType / appliedDict 三件套快照。
 实例图谱的合规硬闸只在你这一侧（装配出口）做一次；MCP 侧只剩 ④ 自带的形状闸，入参不是自包含图谱即报错。）
 把这个结果（或它给的引用）作为你的最终输出即可——**前端会据此渲染**。
 
