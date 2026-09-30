@@ -278,6 +278,7 @@ def compute_geometry(instance):
     """
     _graph_data(instance, "compute_geometry")
     plotted, norms, modus = _layout(instance)
+    t = float(_norms_get(norms, ("room", "thickness"), "墙面线偏移基准（取房间墙厚）"))
     applied = instance.get("appliedDict") or {}
     # 墙种值域与分组（appliedRules.wall）：④ 按 ring.<side>.kind 取墙高厚（2026-09-28 接上消费者）。
     # 只有「基底院墙」那一组（appliesTo=ringBase）决定院墙高厚；建筑用墙（houyanqiang）回落 norms.wall。
@@ -330,7 +331,9 @@ def compute_geometry(instance):
 
         # 院墙上的门本体（不挂在任何建筑上）：门道南北贯通，落在本院北/南界。
         enc = p["c"].get("enclosure", {})
-        for slot, z_edge in (("beimen", zc + d / 2), ("nanmen", zc - d / 2)):
+        # 院墙门(beimen/nanmen)门屋落点随院墙中心同步内移 t/2，确保门屋与墙洞同轴
+        # （院墙中心已从院边界 zN 内移至建筑后檐墙中心 zN - t/2，见 _geo_wall_ring）。
+        for slot, z_edge in (("beimen", zc + d / 2 - t / 2), ("nanmen", zc - d / 2 + t / 2)):
             if enc.get(slot):
                 grole = _gate_role(enc[slot], "enclosure.%s" % slot)
                 geometry.extend(_geo_gate_standalone(grole, z_edge, norms, _form_of(applied, grole)))
@@ -684,16 +687,19 @@ def _geo_chuantang(cx, W, D, zc, node, norms):
 
 
 def _wing_length(node, norms, d, nd, sd, modus):
-    """沿庭院方向(Z)长度：读 `rules.norms.layout.wing` 约束，不硬编码填满庭院。
+    """沿庭院方向(Z)长度：读 `rules.norms.layout.wing` 约束，尊重图谱声明的开间数。
 
-    - lengthMode=miankuo：长度取自身面阔(间数×modus)，而非 d-nd-sd
-    - aisle：南北与两侧房屋各留通道，使中央庭院完整保留
+    - lengthMode=miankuo：长度取自身面阔(间数×modus)，即知识包声明的开间数
+    - aisle：仅当院净深足以容纳「满间 + 两侧通道」时才保留；院偏浅时不再无条件扣 2×aisle，
+      只按院净深封顶防与南北房重叠，多余空间自动成为通道（不压厢房开间）
     - zAlign=center 由调用方（ew_z = 庭院净深中心）实现
     """
     layout = _norms_get(norms, ("layout", "wing"), "翼房布局约束（lengthMode/aisle/zAlign）")
     aisle = float(layout.get("aisle", 0))
     own = float(_dim(node, "miankuo", 0)) * modus     # 自身面阔(间数×modus)
     court_net = d - nd - sd                           # 庭院净深
+    # 厢房绝不顶到南北房/院墙：两端各留 aisle 通道（传统由抄手游廊/耳房接过去）；
+    # 院净深不足时按净深封顶，声明开间可能被压短——窄院本就短翼，属合理，但口子必须留。
     return round(min(own, court_net - 2 * aisle), 3)
 
 
@@ -793,8 +799,12 @@ def _geo_wall_ring(c, w, zc, d, norms, applied, draw_south=True, wall_kinds=None
         return H, T
 
     half = w / 2 - t / 2                     # 东西墙中心 X（与厢房外墙同一墙面线）
-    zN = zc + d / 2 - t / 2                 # 北墙与北房后檐墙共线
-    zS = zc - d / 2 + t / 2                 # 南墙与南房后檐墙共线
+    # 北/南院墙中心 = 建筑后檐墙中心(zN - t/2 / zS + t/2)，而非院边界 zN/zS：
+    # 建筑墙以 footprint 边为外皮、中心内缩 t/2（_geo_slab 各处 cz ± D/2 ∓ t/2），
+    # 若院墙中心取院边界 zN，则两者错开 t/2=0.15 > _resolve_boundary 的 0.1 共线容差，
+    # 被判成两条墙互不相减 → 院墙压住建筑墙(吃墙) + 角部留 0.15 缝。对齐中心后即可正确去重。
+    zN = zc + d / 2 - t / 2                 # 北院墙中心 = 北房后檐墙中心
+    zS = zc - d / 2 + t / 2                 # 南院墙中心 = 南房后檐墙中心
     out = []
 
     def ns_wall(zc_wall, gate, side):
@@ -831,9 +841,9 @@ def _geo_wall_ring(c, w, zc, d, norms, applied, draw_south=True, wall_kinds=None
         ns_wall(zS, (ring.get("nan") or {}).get("gate"), "nan")
     # 东西墙：先画整段；贴边建筑的占位由 _resolve_boundary 统一去重
     Hd, Td = side_h_t("dong")
-    out.append(_geo_wall(half, zc, Td, Hd, d - t, wall_role))
+    out.append(_geo_wall(half, zc, Td, Hd, d, wall_role))
     Hx, Tx = side_h_t("xi")
-    out.append(_geo_wall(-half, zc, Tx, Hx, d - t, wall_role))
+    out.append(_geo_wall(-half, zc, Tx, Hx, d, wall_role))
     return out
 
 

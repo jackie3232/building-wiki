@@ -24,7 +24,6 @@
               "at": "mingjian"
             },
             "height": 3.3,
-            "taiming": 0.3,
             "level": "yideng",
             "material": "qingzhuan"
           },
@@ -36,7 +35,6 @@
               "at": "mingjian"
             },
             "height": 3.3,
-            "taiming": 0.3,
             "level": "sandeng",
             "material": "qingzhuan",
             "gate": {
@@ -51,7 +49,6 @@
               "at": "mingjian"
             },
             "height": 3.3,
-            "taiming": 0.3,
             "level": "erdeng",
             "material": "qingzhuan"
           },
@@ -63,7 +60,6 @@
               "at": "mingjian"
             },
             "height": 3.3,
-            "taiming": 0.3,
             "level": "erdeng",
             "material": "qingzhuan"
           }
@@ -440,12 +436,7 @@
         "heightDefault": 3.3,
         "miankuoDefault": 5,
         "jinshenDefault": 3,
-        "taimingOutset": 0.5,
-        "baseRole": "taiji",
-        "desc": "房间围合墙/顶/地厚度(米)，原 ④ 常量 WALL_THICKNESS。房屋自身厚度，与院墙厚度(wall.*)语义不同故分列。heightDefault：角色未声明 height 时的回落基准。taimingOutset：台基自房屋外墙面线外扩的距离(米)——台明露出部分即为可见台座。baseRole：房间底部构件（台基/地面）的构件 key——**声明了 norms.<role>.taiming 的角色，其底部构件取此 key**（原 ④ 硬编 \"taiji\"）；未声明 taiming 的角色回落用建筑自身 role 表示地面。 miankuoDefault / jinshenDefault：某角色未声明 miankuo / jinshen 时的回落基准（原为装配器 room() 里的字面量 5 / 3，已退成知识声明）。"
-      },
-      "taiming": {
-        "desc": "台基高(台明高，米)。**声明即生成**：某角色声明了 taiming，④ 才为它生成台基构件（对照类型图谱 structs 是否含 taiji）。依据清工部《工程做法则例》小式「台明高=柱高/5」≈0.66m；马炳坚《北京四合院建筑》「垂花门、大门台明可与正房同高但不可超越；厢房、抄手游廊、倒座房比正房低一步台阶(4寸≈0.13m)；耳房既低于正房也低于厢房」。本轮各房屋统一取 0.30m（= 展示层巡游落脚面 TOUR_STEP，保证巡游与台基自洽）；等级分化的台明（正房 0.66 / 厢房·倒座 0.53 / 后罩房 0.40）留待体素细化轮启用——VOXEL_SIZE=0.6m 下 0.40~0.70 同渲染为 1 层，无可视差异。"
+        "desc": "房间围合墙/顶/地厚度(米)，原 ④ 常量 WALL_THICKNESS。房屋自身厚度，与院墙厚度(wall.*)语义不同故分列。heightDefault：角色未声明 height 时的回落基准。miankuoDefault / jinshenDefault：某角色未声明 miankuo / jinshen 时的回落基准（原为装配器 room() 里的字面量 5 / 3，已退成知识声明）。"
       },
       "door": {
         "width": 1.6,
@@ -455,11 +446,11 @@
       },
       "courtDepthRatio": {
         "byRole": {
-          "waiyuan": 0.3,
-          "tingfangyuan": 0.45,
-          "neiyuan": 0.6,
+          "waiyuan": 0.42,
+          "tingfangyuan": 0.55,
+          "neiyuan": 0.78,
           "houzhaoyuan": 0.42,
-          "tingyuan": 0.6
+          "tingyuan": 0.78
         },
         "default": 0.45,
         "desc": "露天院落进深=面阔×ratio，按院落角色：waiyuan=外院(最浅，南北短东西长)、tingfangyuan=厅房院(前堂，居中)、neiyuan=内院主院(最大，近正方形)、houzhaoyuan=后罩院及其前的次院(居中)。一进仅 tingyuan(庭院，既入口院又是主院、无独立院名)；二进=waiyuan+neiyuan；三进=waiyuan+neiyuan+houzhaoyuan；四进及以上前堂后寝=waiyuan+tingfangyuan+neiyuan+houzhaoyuan(+次院)。neiyuan=正房所在的主院(后寝)，取最靠南的正房院但跳过作过厅(usage=guoting)的那一进——过厅是前堂不是后寝；tingfangyuan=作过厅的那一进；waiyuan=倒座所在的外院；houzhaoyuan=neiyuan 之后的院。"
@@ -467,7 +458,7 @@
       "layout": {
         "wing": {
           "lengthMode": "miankuo",
-          "aisle": 1.5,
+          "aisle": 1,
           "zAlign": "center",
           "desc": "东西向翼房（厢房）沿庭院方向(Z)长度取自身面阔(3间×modus≈9.9m)，居中放置在南北两排房之间的庭院区域，两端各留1.5m通道，使中央庭院完整保留（不填满庭院、不与南北房紧贴）。键名为**形体原型级**（wing），非某个具体角色名——④ 只认原型，不认角色。"
         }
@@ -476,29 +467,25 @@
         "miankuo": 5,
         "jinshen": 2,
         "height": 3.3,
-        "taiming": 0.3,
-        "desc": "正房面阔5间(1明+2次+2梢)；进深约6.5m(≈2×modus)，据《北京老城保护房屋修缮技术导则2019》正房五檩/七檩进深6.5~7m。height 暂与厢房持平(3.3)，待按等级校准——正房应最高。taiming=台明高，见 norms.taiming.desc。"
+        "desc": "正房面阔5间(1明+2次+2梢)；进深约6.5m(≈2×modus)，据《北京老城保护房屋修缮技术导则2019》正房五檩/七檩进深6.5~7m。height 暂与厢房持平(3.3)，待按等级校准——正房应最高。"
       },
       "xiangfang": {
         "miankuo": 3,
         "jinshen": 1.4,
         "height": 3.3,
-        "taiming": 0.3,
-        "desc": "厢房面阔3间；进深约4.5m(≈1.4×modus)，据导则厢房无廊进深4m、带廊5m。height 原 ④ 常量 WING_HEIGHT。taiming=台明高，见 norms.taiming.desc。"
+        "desc": "厢房面阔3间；进深约4.5m(≈1.4×modus)，据导则厢房无廊进深4m、带廊5m。height 原 ④ 常量 WING_HEIGHT。"
       },
       "daozuofang": {
         "miankuo": 5,
         "jinshen": 1.4,
         "height": 3.3,
-        "taiming": 0.3,
-        "desc": "倒座房面阔约同正房；进深较浅约4.5m。height 原 ④ 常量 WING_HEIGHT。taiming=台明高，见 norms.taiming.desc。"
+        "desc": "倒座房面阔约同正房；进深较浅约4.5m。height 原 ④ 常量 WING_HEIGHT。"
       },
       "houzhaofang": {
         "miankuo": 5,
         "jinshen": 1.5,
         "height": 3.3,
-        "taiming": 0.3,
-        "desc": "后罩房面阔约同正房；进深较浅约5m。height 原 ④ 常量 WING_HEIGHT。taiming=台明高，见 norms.taiming.desc。"
+        "desc": "后罩房面阔约同正房；进深较浅约5m。height 原 ④ 常量 WING_HEIGHT。"
       },
       "chuihuamen": {
         "gateSpan": 3,
@@ -539,7 +526,7 @@
           "desc": "影壁：height=高；width=面宽；depth=厚；zOffset=自院落南界北移距离(米)；xInset=自东界内收距离(米)。zOffset 使影壁距宅门门道轴线约 4.2m（合「距门内约丈余」），同时在影壁南面与倒座北檐之间留出可通行走道：取 1.2 时走道仅 0.95m，0.5m 占据格下人体无可行区间（实测巡游擦碰），故取 2.0。"
         }
       },
-      "note": "规制数值依据马炳坚《北京四合院建筑》、北京市《北京老城保护房屋修缮技术导则(2019)》、清工部《工程做法则例》小式、清《内务府奏销档》实测折算（modus=每间基准米数，jinshen=进深折合间数，taiming=台明高）。",
+      "note": "规制数值依据马炳坚《北京四合院建筑》、北京市《北京老城保护房屋修缮技术导则(2019)》、清工部《工程做法则例》小式、清《内务府奏销档》实测折算（modus=每间基准米数，jinshen=进深折合间数）。",
       "wall": {
         "height": 3.3,
         "thickness": 0.4,
@@ -573,7 +560,7 @@
       },
       "assign": {
         "withBuilding": "houyanqiang",
-        "standalone": "weiqiang",
+        "standalone": "kaziqiang",
         "withGate": "kaziqiang",
         "desc": "每侧 boundary 的墙种指派（值 = wall.kinds 的 key，不是角色名）：该侧有建筑贴边 → withBuilding（建筑后檐墙兼作院墙）；该侧无建筑 → standalone（独立院墙）；该侧四至是**独立门本体**（如 beimen 槽位）→ withGate（门所在的那道分隔墙）。原先这三串是 assemble.mjs finish() 里的字面量，已退成知识声明。"
       },

@@ -525,3 +525,21 @@ function animate() {
 animate();
 
 if (!KEY) setStatus("缺少 Publishable Key —— 见 web/config.local.js");
+
+/* ================= 本地调试模式（旁路云端 Agent） =================
+   URL 带 ?local[=路径] 时，页面加载即直接 fetch 该 boxes.json 并渲染，
+   完全不经过 ACP/OAK Agent —— 用于本地打磨 ④⑤ 几何（院落平面等）。
+   路径解析：缺省 "./boxes.json"；以 "/" 开头 = 站点根绝对路径；
+   其余按相对当前页面处理。配合：
+     python tools/preview/gen_boxes.py --instance <实例>
+   在仓库根目录起 http.server 使用。 */
+(function localDebug() {
+  const m = new URLSearchParams(location.search).get("local");
+  if (m === null) return;
+  const url = m === "" ? "./boxes.json" : m;
+  setStatus("本地调试模式 · 读取 " + url, true);
+  fetch(url)
+    .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then((boxes) => { const n = addBoxes(boxes); setStatus("已加载本地体素 · " + n + " 体素"); })
+    .catch((e) => setStatus("本地读取失败：" + e.message));
+})();
