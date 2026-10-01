@@ -29,7 +29,9 @@ scene.background = new THREE.Color(0xf4f5f7);
 scene.fog = new THREE.Fog(0xf4f5f7, 60, 160);
 
 const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 500);
-camera.position.set(45, 38, 45);
+// 默认从正南、略高处俯视正面（大门所在的南立面最近、落在屏幕下方）；
+// 配合体素 X 取负，大门(东南角)稳定显示在屏幕右下，与「面南看、大门在右手边」一致。
+camera.position.set(0, 38, -55);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -52,7 +54,7 @@ controls.dampingFactor = 0.08;
 controls.maxPolarAngle = Math.PI * 0.49;
 controls.minDistance = 8;
 controls.maxDistance = 200;
-controls.target.set(0, 0.5, 0);
+controls.target.set(0, 0, 0);
 
 /* ============ 材质：每类(role)随手分一张贴图 ============
    贴图是 16×16 的**灰度**图案（亮度均值贴近 255），与 role 颜色（instanceColor）
@@ -138,7 +140,10 @@ function addBoxes(boxes) {
     const mesh = new THREE.InstancedMesh(geo, mat, sorted.length);
     for (let i = 0; i < sorted.length; i++) {
       const b = sorted[i];
-      p.set(b.x, b.y, b.z);
+      // 显示层 X 取负：引擎约定「东端=east-end → +X」，但在 Y 轴朝上的标准 3D 视角下，
+      // 从正面(南)看时 +X 会落到左手边(西)。取负后引擎的「东端」显示为面向正面时的右手边(东)，
+      // 符合「面南而立、大门在东南角」的直觉。仅显示镜像，引擎/知识包坐标语义不变。
+      p.set(-b.x, b.y, b.z);
       s.set(b.w, b.h, b.d);            // 满格：相邻块共面 → 零缝
       m.compose(p, q, s);
       mesh.setMatrixAt(i, m);
