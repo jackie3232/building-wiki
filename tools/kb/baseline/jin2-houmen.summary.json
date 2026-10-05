@@ -1,0 +1,18 @@
+{
+  "sku": "8bb0206aac0652cd4f9e7fcbe67da567e36a5c6c",
+  "instance_sha1": "69700cb9892aa907e379acade74c8738b157d0f9",
+  "components": 83,
+  "components_sha1": "f4f8de97e9d9c90a1494881a939750b032eda425",
+  "boxes": 3440,
+  "boxes_sha1": "a8ced1b20060d39bd5b2e0a7f3fbe68fe4198185",
+  "roles": {
+    "chuihuamen": 90,
+    "daozuofang": 614,
+    "houmen": 246,
+    "xiangfang": 978,
+    "yingbi": 20,
+    "yuanqiang": 444,
+    "zhaimen": 278,
+    "zhengfang": 770
+  }
+}

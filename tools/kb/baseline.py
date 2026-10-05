@@ -32,7 +32,8 @@ BASE = os.path.join(HERE, "baseline")
 STYLE = "siheyuan"
 # (名字, 进数, 是否显式设后门)。后门 byDefault=false，单列一个用例覆盖「后门」那条分支。
 CASES = [("jin1", 1, False), ("jin2", 2, False), ("jin3", 3, False),
-         ("jin4", 4, False), ("jin3-houmen", 3, True)]
+         ("jin4", 4, False), ("jin1-houmen", 1, True),
+         ("jin2-houmen", 2, True), ("jin3-houmen", 3, True)]
 
 
 # ── 骨架夹具：按 rules.occupancy 求值（复刻 assemble.mjs 的 occupancyOf） ────

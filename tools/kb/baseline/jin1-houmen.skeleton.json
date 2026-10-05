@@ -1,0 +1,35 @@
+{
+  "style": "siheyuan",
+  "jin": 1,
+  "courtyards": [
+    {
+      "sequence": 1,
+      "enclosure": {
+        "bei": {
+          "role": "zhengfang",
+          "gate": {
+            "role": "houmen"
+          }
+        },
+        "nan": {
+          "role": "daozuofang",
+          "gate": {
+            "role": "zhaimen"
+          }
+        },
+        "dong": {
+          "role": "xiangfang"
+        },
+        "xi": {
+          "role": "xiangfang"
+        }
+      },
+      "perimeter": true,
+      "peripheral": [
+        {
+          "role": "yingbi"
+        }
+      ]
+    }
+  ]
+}

@@ -2,20 +2,34 @@
   "style": "siheyuan",
   "meta": {
     "type": "siheyuan",
-    "desc": "siheyuan 2进实例（由类型图谱+规则库合成，工程文件·自包含）",
+    "desc": "siheyuan 1进实例（由类型图谱+规则库合成，工程文件·自包含）",
     "generatedBy": "assemble.mjs (skill traditional-building)",
     "zeroCoord": true
   },
   "data": {
     "type": "siheyuan",
-    "jin": 2,
+    "jin": 1,
     "courtyards": [
       {
         "id": "cy1",
-        "name": "外院",
+        "name": "庭院",
         "sequence": 1,
         "enclosure": {
           "relation": "weihe",
+          "bei": {
+            "role": "zhengfang",
+            "miankuo": 5,
+            "jinshen": 2,
+            "door": {
+              "at": "mingjian"
+            },
+            "height": 3.3,
+            "level": "yideng",
+            "material": "qingzhuan",
+            "gate": {
+              "role": "houmen"
+            }
+          },
           "nan": {
             "role": "daozuofang",
             "miankuo": 5,
@@ -30,8 +44,27 @@
               "role": "zhaimen"
             }
           },
-          "beimen": {
-            "role": "chuihuamen"
+          "dong": {
+            "role": "xiangfang",
+            "miankuo": 3,
+            "jinshen": 1.4,
+            "door": {
+              "at": "mingjian"
+            },
+            "height": 3.3,
+            "level": "erdeng",
+            "material": "qingzhuan"
+          },
+          "xi": {
+            "role": "xiangfang",
+            "miankuo": 3,
+            "jinshen": 1.4,
+            "door": {
+              "at": "mingjian"
+            },
+            "height": 3.3,
+            "level": "erdeng",
+            "material": "qingzhuan"
           }
         },
         "center": {
@@ -43,84 +76,17 @@
             "role": "yingbi"
           }
         ],
-        "role": "waiyuan",
+        "role": "tingyuan",
         "ring": {
           "bei": {
-            "provider": null,
-            "kind": "kaziqiang",
-            "gate": "chuihuamen"
+            "provider": "zhengfang",
+            "kind": "houyanqiang",
+            "gate": "houmen"
           },
           "nan": {
             "provider": "daozuofang",
             "kind": "houyanqiang",
             "gate": "zhaimen",
-            "thru": null
-          },
-          "dong": {
-            "provider": null,
-            "kind": "kaziqiang"
-          },
-          "xi": {
-            "provider": null,
-            "kind": "kaziqiang"
-          }
-        }
-      },
-      {
-        "id": "cy2",
-        "name": "内院",
-        "sequence": 2,
-        "enclosure": {
-          "relation": "weihe",
-          "bei": {
-            "role": "zhengfang",
-            "miankuo": 5,
-            "jinshen": 2,
-            "door": {
-              "at": "mingjian"
-            },
-            "height": 3.3,
-            "level": "yideng",
-            "material": "qingzhuan"
-          },
-          "dong": {
-            "role": "xiangfang",
-            "miankuo": 3,
-            "jinshen": 1.4,
-            "door": {
-              "at": "mingjian"
-            },
-            "height": 3.3,
-            "level": "erdeng",
-            "material": "qingzhuan"
-          },
-          "xi": {
-            "role": "xiangfang",
-            "miankuo": 3,
-            "jinshen": 1.4,
-            "door": {
-              "at": "mingjian"
-            },
-            "height": 3.3,
-            "level": "erdeng",
-            "material": "qingzhuan"
-          }
-        },
-        "center": {
-          "role": "tingyuan"
-        },
-        "perimeter": true,
-        "role": "neiyuan",
-        "ring": {
-          "bei": {
-            "provider": "zhengfang",
-            "kind": "houyanqiang",
-            "gate": null
-          },
-          "nan": {
-            "provider": null,
-            "kind": "kaziqiang",
-            "gate": "chuihuamen",
             "thru": null
           },
           "dong": {

@@ -1,17 +1,17 @@
 {
   "sku": "16e6f35ca655c40289a7b20c83d45843c16603bf",
-  "instance_sha1": "d43315190a8123f17ae39d2ba078f0ce66f6768e",
-  "components": 164,
-  "components_sha1": "46a163bd248bdbcf88da1443bc8aee32633519ae",
-  "boxes": 6877,
-  "boxes_sha1": "621b9fe3c607c55dbac7f8d7b469eaec7cb937e9",
+  "instance_sha1": "36b0d4fbdc73dcbd016457164fe7924490a3f486",
+  "components": 166,
+  "components_sha1": "d5c654d7e8c181c4febe5d741d071d78623778fa",
+  "boxes": 6919,
+  "boxes_sha1": "6132c6d516aa06d997db999af56fd9f0f786c7cd",
   "roles": {
     "chuihuamen": 90,
     "daozuofang": 614,
     "houzhaofang": 791,
     "xiangfang": 2310,
     "yingbi": 20,
-    "yuanqiang": 438,
+    "yuanqiang": 480,
     "zhaimen": 278,
     "zhengfang": 2336
   }

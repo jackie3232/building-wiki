@@ -81,7 +81,10 @@
             },
             "height": 3.3,
             "level": "yideng",
-            "material": "qingzhuan"
+            "material": "qingzhuan",
+            "gate": {
+              "role": "houmen"
+            }
           },
           "dong": {
             "role": "xiangfang",
@@ -115,7 +118,7 @@
           "bei": {
             "provider": "zhengfang",
             "kind": "houyanqiang",
-            "gate": null
+            "gate": "houmen"
           },
           "nan": {
             "provider": null,
