@@ -394,9 +394,9 @@
     },
     "zhaimen": {
       "gateSpan": 3.0,
-      "height": 4.2,
+      "height": 3.3,
       "margin": 0.8,
-      "desc": "宅门(大门)：门道面阔 gateSpan=3.0；门楼屋顶高 height=4.2(高于普通房屋)；margin=门道端缘距院墙端留白(米)，使角部院墙完整闭合。**落在哪一端不在此声明**——由 dict.zhaimen.form.at 给（east-end），同一事实只允许一处表达。进深同所在房屋，不单列。"
+      "desc": "宅门(大门)：门道面阔 gateSpan=3.0；门楼屋顶高 height=3.3(与房间/围墙齐平)；margin=门道端缘距院墙端留白(米)，使角部院墙完整闭合。**落在哪一端不在此声明**——由 dict.zhaimen.form.at 给（east-end），同一事实只允许一处表达。进深同所在房屋，不单列。"
     },
     "houmen": {
       "gateSpan": 3.0,
@@ -430,7 +430,7 @@
       "height": 3.3,
       "thickness": 0.4,
       "outerThickness": 0.4,
-      "desc": "院墙默认高3.3m、厚0.4m；外围围墙可略高(3.6m)"
+      "desc": "院墙默认高3.3m、厚0.4m（各墙种 height 统一回落至此，不再单独声明）；外围围墙同高(3.3m)"
     }
   },
   "wall": {
@@ -468,29 +468,25 @@
       "weiqiang": {
         "ref": "weiqiang",
         "label": "外围围墙",
-        "desc": "整座院落群最外圈连续围墙，高大不开窗；由各进院落外圈段拼合构成",
-        "height": 3.6,
+        "desc": "整座院落群最外圈连续围墙，不开窗；由各进院落外圈段拼合构成",
         "thickness": 0.4
       },
       "kaziqiang": {
         "ref": "kaziqiang",
         "label": "卡子墙",
         "desc": "院落间分隔墙，正中开垂花门",
-        "height": 3.3,
         "thickness": 0.4
       },
       "houyanqiang": {
         "ref": "houyanqiang",
         "label": "后檐墙",
         "desc": "建筑自带、兼作院落边界的墙",
-        "height": 3.3,
         "thickness": 0.3
       },
       "buqiang": {
         "ref": "buqiang",
         "label": "补墙",
         "desc": "建筑间空隙填补短墙",
-        "height": 3.3,
         "thickness": 0.4
       },
       "youlang": {
