@@ -1,0 +1,26 @@
+{
+  "dict": {
+    "desc": "分隔外院与内院的内门，装饰性",
+    "level": "sideng",
+    "material": "mugou",
+    "color": "#82A33A",
+    "structs": [
+      "men",
+      "qiangti",
+      "wuoding"
+    ],
+    "form": {
+      "kind": "gate-passage",
+      "at": "center",
+      "tower": true
+    },
+    "label": "垂花门"
+  },
+  "type": {},
+  "norms": {
+    "gateSpan": 3.0,
+    "height": 3.6,
+    "depth": 1.2,
+    "desc": "垂花门面阔约一间(3.0m，比照宅门门道 gateSpan)；门楼比门道顶(3.3)略抬高至3.6；depth=门道进深(米)。"
+  }
+}

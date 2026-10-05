@@ -126,7 +126,7 @@ def comp_key(g):
                   "s": [s.get("w"), s.get("h"), s.get("d")]})
 
 
-def collect(name, jin, with_houmen, rules, node, assemble, write=True):
+def collect(name, jin, with_houmen, rules, node, assemble, packsRoot, write=True):
     sk = skeleton_for(jin, rules, with_houmen)
     sk_path = os.path.join(BASE, "%s.skeleton.json" % name)
     os.makedirs(BASE, exist_ok=True)
@@ -134,7 +134,7 @@ def collect(name, jin, with_houmen, rules, node, assemble, write=True):
         io.open(sk_path, "w", encoding="utf-8").write(
             json.dumps(sk, ensure_ascii=False, indent=2))
     # --check 走 stdin 送骨架：既不必落盘，也杜绝「比对时把基线覆盖掉」这类自伤
-    proc = subprocess.run([node, assemble], cwd=os.path.dirname(assemble),
+    proc = subprocess.run([node, assemble, "--packs", packsRoot], cwd=os.path.dirname(assemble),
                           input=json.dumps(sk, ensure_ascii=False),
                           capture_output=True, text=True, encoding="utf-8")
     if proc.returncode != 0:
@@ -182,7 +182,8 @@ def main():
     node = os.environ.get("NODE_BIN") or shutil.which("node")
     if not node:
         sys.exit("找不 node")
-    pack = os.path.join(os.path.dirname(assemble), "packs", STYLE)
+    packRoot = os.path.join(ROOT, "packs")
+    pack = os.path.join(packRoot, STYLE)
     rules = json.load(io.open(os.path.join(pack, "%s.rules" % STYLE), encoding="utf-8"))
 
     sys.path.insert(0, os.path.join(ROOT, "server"))
@@ -190,7 +191,7 @@ def main():
 
     bad = 0
     for name, jin, with_houmen in CASES:
-        got = collect(name, jin, with_houmen, rules, node, assemble, write=not args.check)
+        got = collect(name, jin, with_houmen, rules, node, assemble, packRoot, write=not args.check)
         print("=" * 60)
         print("%-12s 构件 %d · 体素 %d · role %s"
               % (name, got["components"], got["boxes"], ",".join(got["roles"])))

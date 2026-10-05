@@ -159,7 +159,7 @@ def main():
     ap.add_argument("--check", action="store_true", help="只比对，不写 build/")
     args = ap.parse_args()
 
-    pack = os.path.join(find_skill(), "packs", args.style)
+    pack = os.path.join(ROOT, "packs", args.style)
     src_dir = os.path.join(pack, "src")
     if not os.path.isdir(src_dir):
         sys.exit("没有源目录：%s" % src_dir)

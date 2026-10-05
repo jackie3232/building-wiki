@@ -27,10 +27,10 @@ description: 把用户对中国传统建筑的自然语言需求（当前支持�
 
 本技能支持多种风格（知识包），风格差异**全部在知识包里**，技能代码零风格事实。
 
-- **风格（style）由你推断**：从用户话术判断（如「四合院 / 北京院子」→ `siheyuan`）。**当前 `packs/` 下只有 `siheyuan` 一个包**——用户要的风格若无对应包，如实告知暂不支持，**不要臆造 style**（缺包会报「图谱缺陷：未知风格…」并列出可用包）。
+- **风格（style）由你推断**：从用户话术判断（如「四合院 / 北京院子」→ `siheyuan`）。**本地 `packs/`（仓库顶层）目前只有 `siheyuan` 一个包**；运行时 assemble 按 `cos:packs/manifest.json` 拉取对应版本——用户要的风格若无对应包，如实告知暂不支持，**不要臆造 style**（缺包会报「图谱缺陷：未知风格…」并列出可用包）。
 - 把推断出的风格写进骨架顶层字段 **`style`**（如 `"style": "siheyuan"`）。`assemble.mjs` 会据此加载 `packs/<style>/` 知识包。
 - **`style` 是必填项**：装配器**不设默认风格**（默认风格字面量＝把具体建筑类型写进引擎，违反总纲 7 判据 1）。用户没明说风格时，你要**自行判断并在骨架里写明**——当前只有四合院一个包，所以默认写 `siheyuan`；但必须写出来，漏了会直接报错。
-- 可用风格清单 = 本技能 `packs/` 下的目录名。需要时先 `ls packs/` 确认有哪些包。
+- 可用风格清单 = 仓库顶层 `packs/` 下的目录名（本地 authoring 用）；运行时等价于 `cos:packs/manifest.json` 里的风格键。需要时先 `ls packs/` 确认有哪些包。
 
 ## 硬约束（违反即作废）
 
@@ -104,7 +104,12 @@ node .claude/skills/traditional-building/assemble.mjs --skeleton sk.json > insta
 
 ### CLI 只认三个参数
 
-`--packs`（默认脚本同目录 `packs/`）、`--style`（骨架 `style` 的同义覆盖，二者必须有一个）、`--skeleton`。
+`--packs`（**不传 = 运行时从 COS 按 manifest 拉取知识包**；传则指向本地 packs 根，如仓库顶层 `packs/`）、`--style`（骨架 `style` 的同义覆盖，二者必须有一个）、`--skeleton`。
+
+### 运行时拉取（知识库动态化）
+- 装配器 `assemble.mjs` 在**不传 `--packs`** 时，按 `cos:packs/manifest.json` 解析该风格版本与 base，再从 COS 拉取 `rules/type/dict` 三件套（按版本落到 `/tmp` 缓存，warm 容器免重复拉取）。
+- 因此**知识更新只需重跑 `tools/kb/publish_pack.mjs` 上传到 COS**，无需 redeploy 函数。
+- 本地 authoring / 回归用 `--packs <本地 packs 根>` 走本地包，不依赖云。
 **传别的参数一律报错**（不静默忽略）——所以别自造开关。
 
 **变体靠骨架表达，不靠命令行**：用户说「不要影壁」，就把它从该进的 `peripheral` 里去掉；

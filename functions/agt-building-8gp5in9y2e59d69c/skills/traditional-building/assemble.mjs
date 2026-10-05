@@ -27,10 +27,115 @@
  */
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+
+// ───────────── 知识包运行时拉取（COS，按 manifest 版本化） ─────────────
+// 无 --packs 时（云端运行时）按 cos:packs/manifest.json 解析 style 的版本与 base，
+// 再从 COS 拉取三件套；按版本落到 /tmp 缓存，warm 容器免重复拉取。
+// 有 --packs 时走本地（离线 authoring / baseline），逻辑不变。
+// 签名器与 upload_instance.mjs 同源（COS V5 手搓 HMAC-SHA1），已实测可用。
+const COS_PACKS_MANIFEST_KEY = "packs/manifest.json";
+const PACK_CACHE_ROOT = path.join(os.tmpdir(), "bw_packs_cache");
+
+function cosEnv(name, fallback) {
+  const v = process.env[name];
+  return v === undefined || v === "" ? fallback : v;
+}
+const COS_SECRET_ID = cosEnv("TCB_SECRET_ID") || cosEnv("TENCENTCLOUD_SECRETID");
+const COS_SECRET_KEY = cosEnv("TCB_SECRET_KEY") || cosEnv("TENCENTCLOUD_SECRETKEY");
+const COS_TOKEN = cosEnv("TCB_TOKEN") || cosEnv("TENCENTCLOUD_SESSIONTOKEN") || null;
+const COS_BUCKET = cosEnv("BW_COS_BUCKET", "6275-building-wiki-d3gm9k9xwd651699f-1258039591");
+const COS_REGION = cosEnv("BW_COS_REGION", "ap-shanghai");
+
+function cosSha1(s) { return crypto.createHash("sha1").update(s, "utf8").digest("hex"); }
+function cosHmac(key, s) { return crypto.createHmac("sha1", key).update(s, "utf8").digest("hex"); }
+function cosQuote(s) {
+  return encodeURIComponent(String(s))
+    .replace(/[!'()*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
+}
+function cosAuthAndHost(method, key) {
+  const host = `${COS_BUCKET}.cos.${COS_REGION}.myqcloud.com`;
+  const p = "/" + key;
+  const signed = { host };
+  if (COS_TOKEN) signed["x-cos-security-token"] = COS_TOKEN;
+  const now = Math.floor(Date.now() / 1000);
+  const signTime = `${now};${now + 600}`;
+  const signKey = cosHmac(COS_SECRET_KEY, signTime);
+  const headerKeys = Object.keys(signed).map((k) => k.toLowerCase()).sort();
+  const headerList = headerKeys.join(";");
+  const httpHeaders = headerKeys.map((k) => `${cosQuote(k)}=${cosQuote(signed[k])}`).join("&");
+  const formatStr = `${method.toLowerCase()}\n${p}\n\n${httpHeaders}\n`;
+  const innerSha1 = cosSha1(formatStr);
+  const strToSign = "sha1\n" + signTime + "\n" + innerSha1 + "\n";
+  const signature = cosHmac(signKey, strToSign);
+  const auth = "q-sign-algorithm=sha1" + "&q-ak=" + COS_SECRET_ID +
+    "&q-sign-time=" + signTime + "&q-key-time=" + signTime +
+    "&q-header-list=" + headerList + "&q-url-param-list=" + "&q-signature=" + signature;
+  return { host, auth };
+}
+async function cosGetText(key) {
+  const { host, auth } = cosAuthAndHost("GET", key);
+  const url = `https://${host}/${encodeURI(key)}`;
+  const headers = { host, Authorization: auth };
+  if (COS_TOKEN) headers["x-cos-security-token"] = COS_TOKEN;
+  const res = await fetch(url, { method: "GET", headers });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    let t = "";
+    try { t = await res.text(); } catch { /* ignore */ }
+    throw new Error(`图谱缺陷：知识包拉取失败 ${res.status} ${res.statusText}: ${t.slice(0, 300)}`);
+  }
+  return await res.text();
+}
+async function cosGetJson(key) {
+  const txt = await cosGetText(key);
+  if (txt == null) return null;
+  return JSON.parse(txt);
+}
+async function ensureCached(key, localPath) {
+  if (fs.existsSync(localPath)) return; // 缓存命中（按版本目录隔离，版本变即重拉）
+  fs.mkdirSync(path.dirname(localPath), { recursive: true });
+  const txt = await cosGetText(key);
+  if (txt == null) throw new Error(`图谱缺陷：知识包文件不存在于 COS：${key}`);
+  fs.writeFileSync(localPath, txt, "utf-8");
+}
+
+async function loadKnowledgeRemote(style) {
+  if (!COS_SECRET_ID || !COS_SECRET_KEY) {
+    throw new Error("图谱缺陷：运行时拉取知识包缺少云存储凭据（TCB_SECRET_ID / TCB_SECRET_KEY）；"
+      + "本地可用 --packs 指定本地包，或部署环境注入凭据。");
+  }
+  const manifest = await cosGetJson(COS_PACKS_MANIFEST_KEY);
+  const entry = manifest ? manifest[style] : null;
+  const avail = manifest ? Object.keys(manifest) : [];
+  if (!entry || !entry.base) {
+    throw new Error(`图谱缺陷：未知风格「${style}」—— manifest 中无此知识包`
+      + (avail.length ? `（可用：${avail.join(" / ")}）` : "（manifest 为空）")
+      + "；风格事实全在知识包里，不要臆造 style");
+  }
+  const base = entry.base;
+  const cacheDir = path.join(PACK_CACHE_ROOT, style, String(entry.version));
+  const local = {
+    rules: path.join(cacheDir, `${style}.rules`),
+    type: path.join(cacheDir, `${style}.type.json`),
+    dict: path.join(cacheDir, "dict.json"),
+  };
+  await ensureCached(`${base}${style}.rules`, local.rules);
+  await ensureCached(`${base}${style}.type.json`, local.type);
+  await ensureCached(`${base}dict.json`, local.dict);
+  return {
+    rules: JSON.parse(fs.readFileSync(local.rules, "utf-8")),
+    type: JSON.parse(fs.readFileSync(local.type, "utf-8")),
+    dict: JSON.parse(fs.readFileSync(local.dict, "utf-8")),
+    version: entry.version,
+    base,
+  };
+}
 
 // 骨架里允许携带的建筑声明字段：
 // 声明性的（门 / 穿堂）+ 业务量（面阔…）。业务量的值域由 rules.paramRanges 约束（见 validatePlan）。
@@ -49,23 +154,26 @@ function loadJson(p) {
  *  约定优于配置——新增风格只需在 packs/ 下加一个目录，引擎零改动。
  *  未知风格须报「图谱缺陷」并列出可用包，不能把裸 ENOENT 栈丢出去
  *  （那种报错会把人/LLM 引向「文件路径写错了」，而不是「这个风格还没建包」）。 */
-function loadKnowledge(style, baseDir = path.join(HERE, "packs")) {
-  const dir = path.join(baseDir, style);
-  if (!fs.existsSync(dir)) {
-    let avail = [];
-    try {
-      avail = fs.readdirSync(baseDir, { withFileTypes: true })
-        .filter((d) => d.isDirectory()).map((d) => d.name);
-    } catch { /* 包根都读不到时只报 style 未知 */ }
-    throw new Error(`图谱缺陷：未知风格「${style}」—— packs/ 下无此知识包`
-                    + (avail.length ? `（可用：${avail.join(" / ")}）` : "")
-                    + "；风格事实全在 packs 里，不要臆造 style");
+async function loadKnowledge(style, baseDir) {
+  if (baseDir) {
+    const dir = path.join(baseDir, style);
+    if (!fs.existsSync(dir)) {
+      let avail = [];
+      try {
+        avail = fs.readdirSync(baseDir, { withFileTypes: true })
+          .filter((d) => d.isDirectory()).map((d) => d.name);
+      } catch { /* 包根都读不到时只报 style 未知 */ }
+      throw new Error(`图谱缺陷：未知风格「${style}」—— packs/ 下无此知识包`
+                      + (avail.length ? `（可用：${avail.join(" / ")}）` : "")
+                      + "；风格事实全在 packs 里，不要臆造 style");
+    }
+    return {
+      rules: loadJson(path.join(dir, `${style}.rules`)),
+      type: loadJson(path.join(dir, `${style}.type.json`)),
+      dict: loadJson(path.join(dir, "dict.json")),
+    };
   }
-  return {
-    rules: loadJson(path.join(dir, `${style}.rules`)),
-    type: loadJson(path.join(dir, `${style}.type.json`)),
-    dict: loadJson(path.join(dir, "dict.json")),
-  };
+  return await loadKnowledgeRemote(style);
 }
 
 // ---------------- 附属知识快照 ----------------
@@ -735,7 +843,7 @@ export function validateInstanceGraph(instance, rulesDoc, typeDoc, dictDoc) {
  * - 院名不取自骨架，由 sequence.naming 规则推导（命名权归图谱，不归 LLM）。
  * - 收尾与 CLI 直跑共用 finish，故两条入口出的形状必然一致。
  */
-export function assembleInstance(plan, packsRoot, opts = {}) {
+export async function assembleInstance(plan, packsRoot, opts = {}) {
   // 风格**必填**：来自 --style 或骨架的 style。代码里不设任何默认风格——默认风格字面量
   // 就是「具体建筑类型硬编」（总纲 7 判据 1）；缺了即报错，由理解层补上，不猜。
   const style = opts.style || plan.style;
@@ -743,7 +851,8 @@ export function assembleInstance(plan, packsRoot, opts = {}) {
     throw new Error("图谱缺陷：骨架缺 style（风格标识），且未传 --style —— "
                     + "风格必须显式给出，装配器不设默认（默认值会让「缺字段」被静默吞掉）");
   }
-  const { rules, type, dict } = loadKnowledge(style, packsRoot);
+  const kp = await loadKnowledge(style, packsRoot);
+  const { rules, type, dict } = kp;
   const norms = rules.norms ?? {};
   const courtName = courtNamer(rules, dict);
 
@@ -796,6 +905,11 @@ export function assembleInstance(plan, packsRoot, opts = {}) {
   });
 
   const inst = finish(jin, courtyards, rules, type, dict, style);
+  // 知识包版本钉进快照，便于回溯每个实例由哪一版知识包生成。
+  if (kp.version) {
+    inst.meta.knowledgeVersion = kp.version;
+    if (kp.base) inst.meta.knowledgeBase = kp.base;
+  }
   // 装配出口硬闸：实例图谱 regime 校验（occupancy + position）。不过即抛错，
   // 使 Agent 在调 generate_building（数十秒的 MCP 往返）前 fail-fast。
   // 这是实例图谱合规校验的**唯一实现**（2026-09-27 定）：服务端不再重复校验，
@@ -807,7 +921,9 @@ export function assembleInstance(plan, packsRoot, opts = {}) {
 // ---------------- CLI ----------------
 
 function parseArgs(argv) {
-  const out = { packs: path.join(HERE, "packs"), skeleton: null, style: null };
+  // packs 默认 null：不传 --packs 时走运行时 COS 拉取（知识包动态化）；
+  // 传 --packs 才用本地包（离线 authoring / baseline）。
+  const out = { packs: null, skeleton: null, style: null };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--packs") out.packs = argv[++i];
     else if (argv[i] === "--style") out.style = argv[++i];
@@ -818,7 +934,7 @@ function parseArgs(argv) {
   return out;
 }
 
-function main() {
+async function main() {
   const args = parseArgs(process.argv.slice(2));
   let raw;
   if (args.skeleton) {
@@ -827,9 +943,12 @@ function main() {
     raw = fs.readFileSync(0, "utf-8"); // stdin
   }
   const plan = JSON.parse(raw);
-  const inst = assembleInstance(plan, args.packs, { style: args.style });
+  const inst = await assembleInstance(plan, args.packs, { style: args.style });
   process.stdout.write(JSON.stringify(inst, null, 2));
 }
 
 const invokedDirectly = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (invokedDirectly) main();
+if (invokedDirectly) main().catch((e) => {
+  process.stderr.write(String((e && e.message) || e) + "\n");
+  process.exit(1);
+});

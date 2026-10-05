@@ -71,13 +71,11 @@ def strip_comments(src, is_js):
 def dict_keys():
     """本仓库所有 pack 里出现过的 dict 词条 key（= 风格事实的全集）。"""
     keys = {}
-    base = os.path.join(ROOT, "functions")
-    for fn in os.listdir(base):
-        p = os.path.join(base, fn, "skills", "traditional-building", "packs")
-        if not os.path.isdir(p):
-            continue
-        for style in os.listdir(p):
-            dj = os.path.join(p, style, "dict.json")
+    p = os.path.join(ROOT, "packs")
+    if not os.path.isdir(p):
+        return keys
+    for style in os.listdir(p):
+        dj = os.path.join(p, style, "dict.json")
             if not os.path.exists(dj):
                 continue
             doc = json.load(io.open(dj, encoding="utf-8"))

@@ -1,0 +1,57 @@
+{
+  "dict": {},
+  "type": {
+    "desc": "基本空间单元：由房屋围合出的露天院落",
+    "center": {
+      "ref": "tingyuan",
+      "desc": "院落中心（露天）"
+    },
+    "gate": {
+      "ref": "chuihuamen",
+      "desc": "院落边界上的门本体——不挂在任何建筑上（如卡子墙正中的垂花门）。设在何处分界、何时设，由 rules.occupancy / rules.position 声明，本图谱不重复。"
+    },
+    "peripheral": [
+      {
+        "ref": "youlang",
+        "desc": "游廊连接各屋（可选）。【当前不启用】几何层各进 peripheral 未声明 youlang，留待加细节阶段确定抄手游廊形制与归属后再恢复"
+      },
+      {
+        "ref": "yingbi",
+        "desc": "门内影壁（可选）：正对宅门、立于门内侧，归宅门所在之院（第一进）"
+      },
+      {
+        "ref": "erfang",
+        "attachToRef": "zhengfang",
+        "cond": "optional",
+        "desc": "耳房接正房两侧（可选）。⚠️ 本条 cond 属越界（「可选」应归 rules），但 rules 侧目前无等价声明，暂留此处以免该事实失源；待迁入 rules.occupancy 后删除 cond。"
+      },
+      {
+        "ref": "houzhaofang",
+        "desc": "后罩房位于正房之后。出现条件（末进 + jin>=3）由 rules.occupancy 声明，本图谱不重复。"
+      }
+    ],
+    "ring": {
+      "ref": "weihe",
+      "desc": "院落连续围墙基底（boundarySegmentRealization 院墙环分段实现）：每院先有一道完整四侧墙环（纯围墙基线）；叠加建筑后，其贴边界的后檐墙分段实现（替换）对应围墙段；建筑间空隙由补墙/游廊填。每侧墙基底恒在——该侧有建筑则由其后檐墙分段实现，无建筑则为独立院墙（缺省由谁实现，归 rules.occupancy）。",
+      "sides": {
+        "bei": {
+          "wallRef": "yuanqiang",
+          "desc": "北墙基底"
+        },
+        "nan": {
+          "wallRef": "yuanqiang",
+          "desc": "南墙基底"
+        },
+        "dong": {
+          "wallRef": "yuanqiang",
+          "desc": "东墙基底"
+        },
+        "xi": {
+          "wallRef": "yuanqiang",
+          "desc": "西墙基底"
+        }
+      }
+    }
+  },
+  "norms": {}
+}

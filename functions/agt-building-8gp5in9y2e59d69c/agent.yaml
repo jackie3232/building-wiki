@@ -23,7 +23,9 @@
 #      否则模型完全不知道有装配器存在（实测：会拿手写骨架直接喂几何工具
 #      —— 当时叫 compute_geometry，现为 generate_building —— 拿到空结果后反复盲试 15 分钟）。
 #      真源仍只有一份：schema 与流程只写在 skill 的 SKILL.md 里；system: 承载「人设 + 指路」，不重复流程细节。
-#   8. skill 会被递归物化到 **cwd 下** .claude/skills/<name>/（含 assemble.mjs + packs/<style>/ 知识包）。
+#   8. skill 会被递归物化到 **cwd 下** .claude/skills/<name>/（含 assemble.mjs）。
+#      知识包不再随函数打包：运行时 assemble 按 cos:packs/manifest.json 从 COS 拉取
+#      （见 SKILL.md「运行时拉取」），知识更新只发 COS、不 redeploy 函数。
 #      真码 dist/managed/skills.js（copyDirRecursive）+ dist/oak-runtime/workspace.js
 #      （OAK_WORKSPACE_CWD = "/tmp/workspace"，SCF/TCBR 一致）→ 路径确定，故用绝对路径。
 # ============================================================================

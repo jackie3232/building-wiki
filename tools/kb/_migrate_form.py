@@ -17,10 +17,7 @@ import re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-import glob  # noqa: E402
-
-PACK = os.path.join(glob.glob(os.path.join(
-    ROOT, "functions", "*", "skills", "traditional-building"))[0], "packs", "siheyuan")
+PACK = os.path.join(ROOT, "packs", "siheyuan")
 DICT = os.path.join(PACK, "dict.json")
 
 # role -> (form, color 或 None)

@@ -1,0 +1,33 @@
+{
+  "dict": {
+    "desc": "坐北朝南正中的主屋，等级最高、面阔最大",
+    "level": "yideng",
+    "material": "qingzhuan",
+    "color": "#C0504D",
+    "modular": [
+      "miankuo",
+      "jinshen"
+    ],
+    "structs": [
+      "wuoding",
+      "qiangti",
+      "taiji",
+      "zhu",
+      "liang",
+      "men",
+      "chuang"
+    ],
+    "form": {
+      "kind": "room"
+    },
+    "label": "正房"
+  },
+  "type": {},
+  "norms": {
+    "miankuo": 5,
+    "jinshen": 2,
+    "height": 3.3,
+    "taiming": 0.3,
+    "desc": "正房面阔5间(1明+2次+2梢)；进深约6.5m(≈2×modus)，据《北京老城保护房屋修缮技术导则2019》正房五檩/七檩进深6.5~7m。height 暂与厢房持平(3.3)，待按等级校准——正房应最高。taiming=台明高，见 norms.taiming.desc。"
+  }
+}
