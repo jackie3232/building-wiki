@@ -527,10 +527,26 @@ function finish(jin, courtyards, rulesDoc, typeDoc, dictDoc, style) {
 
 /** instance = data（实例参数）+ 知识中心三件套整份快照（本体）。
  *  §8 公式：instance graph = ontology( dict + type graph + rules ) + parameters。
- *  style 即知识包标识（packs/<style>/），写进 instance 供 ④⑤ / 校验器溯源。 */
+ *  style 即知识包标识（packs/<style>/），写进 instance 供 ④⑤ / 校验器溯源。
+ *
+ *  增量/局部编辑机制（方案 B，2026-09-29 定）：
+ *   - base   = 不可变基座（首次装配 = data 自身的深拷贝）；编辑永不就地改 base。
+ *   - mods   = append-only 编辑日志（每条是结构化 patch：{op,target,value}）。
+ *   - data   = 生效数据 = replay(base, mods)，**④ 只消费 data**，故几何链路零改。
+ *   - meta.sourcePack / meta.editCount = 溯源 + 编辑计数（审计用）。
+ *  重放语义保证零漂移、可回滚、可审计：effectiveData 永远由 base + 全量 mods 重算得出，
+ *  绝不在 data 上累积原地变异（避免中间数据悄悄错）。 */
 function wrap(jin, courtyards, rulesDoc, typeDoc, dictDoc, style,
-              generatedBy = "assemble.mjs (skill traditional-building)") {
+              opts = {}) {
+  const {
+    generatedBy = "assemble.mjs (skill traditional-building)",
+    base = null,
+    mods = [],
+    sourcePack = null,
+  } = opts;
   const data = { type: style, jin, courtyards };
+  // base / data 各自独立深拷贝，互不可见——编辑只动 mods，重放时再合成 data。
+  const baseData = base ? clone(base) : clone(data);
   const inst = {
     style,
     meta: {
@@ -538,15 +554,167 @@ function wrap(jin, courtyards, rulesDoc, typeDoc, dictDoc, style,
       desc: `${style} ${jin}进实例（由类型图谱+规则库合成，工程文件·自包含）`,
       generatedBy,
       zeroCoord: true,
+      editCount: mods.length,
     },
-    data,
+    base: baseData,
+    mods: mods.map(clone),
+    data: clone(data),
     // 本体三件套**整份**：dict(词汇层) / type(结构层) / rules(约束层)。引擎不裁剪、不列键名。
     appliedRules: rulesDoc ?? {},
     appliedType: typeDoc ?? {},
   };
+  if (sourcePack) inst.meta.sourcePack = sourcePack;
   if (dictDoc !== null && dictDoc !== undefined) {
     inst.appliedDict = dictDoc;
   }
+  return inst;
+}
+
+// ---------------- 增量编辑引擎（方案 B）：base + mods 重放 ----------------
+// 设计纪律（架构总纲 + 用户 2026-09-29 拍板）：实例图谱为唯一真相源（SoR）；
+// 新建 = 全新实例图谱（mods=[]），编辑 = 读旧实例 → 追加一条 mod → replay(base,mods) → 写新 uuid 实例。
+// ④ 只读 instance.data，故 data 必须是「已重放的生效值」；base+mods 仅作审计/回滚/重放依据。
+
+/** 纯 JSON 深拷贝（data 是纯 JSON-serializable，JSON 往返确定且无函数/undefined 丢失问题）。 */
+function clone(o) { return JSON.parse(JSON.stringify(o)); }
+
+/** 把 "courtyards[0].enclosure.bei.rooms" 解析成 ["courtyards",0,"enclosure","bei","rooms"]。 */
+function parsePath(p) {
+  const parts = [];
+  const re = /([^.\[\]]+)|\[(\d+)\]/g;
+  let m, hit = false;
+  while ((m = re.exec(p)) !== null) {
+    hit = true;
+    if (m[1] !== undefined) parts.push(m[1]);
+    else if (m[2] !== undefined) parts.push(Number(m[2]));
+  }
+  if (!hit) throw new Error(`图谱缺陷：非法 mod target 路径「${p}」`);
+  return parts;
+}
+
+const MOD_OPS = new Set(["set", "del", "append", "insert"]);
+
+/** 把一条 mod（{op,target,value[,index]}）应用到 data 上（就地，调用方已 clone 过 base）。 */
+function applyMod(data, mod) {
+  const parts = parsePath(mod.target);
+  if (parts.length === 0) throw new Error(`图谱缺陷：mod target 路径为空（${mod.target}）`);
+  let cur = data;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const k = parts[i];
+    if (cur === null || cur === undefined) {
+      throw new Error(`图谱缺陷：mod target 路径断在 ${parts.slice(0, i + 1).join(".")}（${mod.target}）`);
+    }
+    // 允许用数字下标进入数组；但若用字符串索引数组则报错（如 courtyards.foo）。
+    if (Array.isArray(cur) && typeof k !== "number") {
+      throw new Error(`图谱缺陷：mod target 路径试图用「${String(k)}」索引数组（${mod.target}）`);
+    }
+    cur = cur[k];
+  }
+  const last = parts[parts.length - 1];
+  const op = mod.op || "set";
+  switch (op) {
+    case "set": {
+      if (Array.isArray(cur) && typeof last !== "number") {
+        throw new Error(`图谱缺陷：mod set 末段 ${String(last)} 须为数组下标（${mod.target}）`);
+      }
+      cur[last] = clone(mod.value);
+      break;
+    }
+    case "del": {
+      if (Array.isArray(cur) && typeof last === "number") cur.splice(last, 1);
+      else if (cur !== null && typeof cur === "object") delete cur[last];
+      else throw new Error(`图谱缺陷：mod del 目标不可删（${mod.target}）`);
+      break;
+    }
+    case "append": {
+      if (!Array.isArray(cur[last])) {
+        if (cur[last] === undefined) cur[last] = [];
+        else throw new Error(`图谱缺陷：mod append 目标非数组（${mod.target}）`);
+      }
+      cur[last].push(clone(mod.value));
+      break;
+    }
+    case "insert": {
+      if (!Array.isArray(cur[last])) throw new Error(`图谱缺陷：mod insert 目标非数组（${mod.target}）`);
+      const idx = typeof mod.index === "number" ? mod.index : cur[last].length;
+      cur[last].splice(idx, 0, clone(mod.value));
+      break;
+    }
+    default:
+      throw new Error(`图谱缺陷：不支持的 mod op「${op}」（仅 ${[...MOD_OPS].join("/")}）`);
+  }
+  return data;
+}
+
+/** 重放：base 深拷贝后按序应用所有 mod，返回生效 data。base 永不改动。 */
+function replayMods(base, mods) {
+  const data = clone(base);
+  for (const mod of mods) applyMod(data, mod);
+  return data;
+}
+
+/** 把外部传来的 mod 规范化为内部记录（补 id/ts/actor，校验 op/target）。 */
+function normalizeMod(m) {
+  if (!m || typeof m !== "object" || Array.isArray(m)) {
+    throw new Error("图谱缺陷：mod 不是对象");
+  }
+  if (!m.target || typeof m.target !== "string") {
+    throw new Error("图谱缺陷：mod 缺 target（JSON path，如 courtyards[0].enclosure.bei.rooms.0.miankuo）");
+  }
+  const op = m.op || "set";
+  if (!MOD_OPS.has(op)) {
+    throw new Error(`图谱缺陷：mod.op 非法「${op}」（仅 ${[...MOD_OPS].join("/")}）`);
+  }
+  if (op !== "del" && !("value" in m)) {
+    throw new Error(`图谱缺陷：mod.op=${op} 缺 value`);
+  }
+  return {
+    id: m.id || `m${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    ts: m.ts || Date.now(),
+    actor: m.actor || "agent",
+    desc: m.desc || "",
+    op,
+    target: m.target,
+    value: m.value,
+    index: m.index,
+  };
+}
+
+/**
+ * 编辑既有实例：读旧实例 → 取 base（无则回落旧 data）→ 追加新 mod → replay 出 data → 校验 → 出新实例。
+ * 出新实例仍是「全新实例图谱」（带新 base+mods），前端按新 instance_ref 回灌；旧实例不被改动。
+ * @param {object} existing 既有实例图谱（可带 base/mods，或旧版只有 data）
+ * @param {Array} modSpecs 一条或多条 mod 声明（{op,target,value[,index,desc]}）
+ * @param {string|null} packsRoot 本地知识包根（仅校验用，快照已随实例自带）
+ * @returns 新的实例图谱（meta.editCount = 原 mods 数 + 新增数）
+ */
+export async function editInstance(existing, modSpecs, packsRoot = null, opts = {}) {
+  if (!existing || typeof existing !== "object" || Array.isArray(existing)) {
+    throw new Error("图谱缺陷：editInstance 收到非对象实例");
+  }
+  // base 来源：优先用既有 base（不可变基座）；旧版实例无 base 则把当前 data 当 base（首次编辑）。
+  const base = existing.base ?? existing.data;
+  if (!base || typeof base !== "object") throw new Error("图谱缺陷：既有实例缺 base/data，无法编辑");
+  const mods = Array.isArray(existing.mods) ? existing.mods.map(clone) : [];
+  const newMods = Array.isArray(modSpecs) ? modSpecs : [modSpecs];
+  for (const spec of newMods) mods.push(normalizeMod(spec));
+
+  const data = replayMods(base, mods);
+
+  const inst = {
+    style: existing.style,
+    meta: { ...(existing.meta ?? {}), editCount: mods.length },
+    base: clone(base),
+    mods,
+    data,
+    appliedRules: existing.appliedRules ?? {},
+    appliedType: existing.appliedType ?? {},
+  };
+  if (existing.appliedDict !== undefined) inst.appliedDict = existing.appliedDict;
+  if (opts.generatedBy) inst.meta.generatedBy = opts.generatedBy;
+  // 出口硬闸：对新生效 data 跑实例图谱 regime 校验（occupancy + position + 值域）。
+  // 知识快照直接从旧实例带过（不重拉包），保证编辑前后知识包版本一致、可审计。
+  validateInstanceGraph(inst, inst.appliedRules, inst.appliedType, inst.appliedDict);
   return inst;
 }
 
@@ -910,6 +1078,13 @@ export async function assembleInstance(plan, packsRoot, opts = {}) {
     inst.meta.knowledgeVersion = kp.version;
     if (kp.base) inst.meta.knowledgeBase = kp.base;
   }
+  // 知识包溯源（方案 B）：把 style + 版本 + base 钉进 meta.sourcePack，
+  // 编辑时原样带过，保证编辑前后知识包版本一致、可审计。
+  inst.meta.sourcePack = {
+    style,
+    knowledgeVersion: kp.version ?? null,
+    knowledgeBase: kp.base ?? null,
+  };
   // 装配出口硬闸：实例图谱 regime 校验（occupancy + position）。不过即抛错，
   // 使 Agent 在调 generate_building（数十秒的 MCP 往返）前 fail-fast。
   // 这是实例图谱合规校验的**唯一实现**（2026-09-27 定）：服务端不再重复校验，
@@ -923,27 +1098,68 @@ export async function assembleInstance(plan, packsRoot, opts = {}) {
 function parseArgs(argv) {
   // packs 默认 null：不传 --packs 时走运行时 COS 拉取（知识包动态化）；
   // 传 --packs 才用本地包（离线 authoring / baseline）。
-  const out = { packs: null, skeleton: null, style: null };
+  // 编辑模式（方案 B）：--instance <cos:ref|本地路径> + (--mod <json> | --mods-file <path>)，
+  // 读旧实例、追加 mod、重放出新实例；--style 在编辑模式下仅作校验兜底。
+  const out = { packs: null, skeleton: null, style: null, instance: null, mod: null, modsFile: null };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--packs") out.packs = argv[++i];
     else if (argv[i] === "--style") out.style = argv[++i];
     else if (argv[i] === "--skeleton") out.skeleton = argv[++i];
+    else if (argv[i] === "--instance") out.instance = argv[++i];
+    else if (argv[i] === "--mod") out.mod = argv[++i];
+    else if (argv[i] === "--mods-file") out.modsFile = argv[++i];
     // 未知参数一律报错，不静默忽略——静默忽略会让人以为某个开关生效了（--omit 就是这么被误用的）。
-    else throw new Error(`图谱缺陷：assemble.mjs 不认识参数「${argv[i]}」（支持 --packs / --style / --skeleton）`);
+    else throw new Error(`图谱缺陷：assemble.mjs 不认识参数「${argv[i]}」`
+      + `（支持 --packs / --style / --skeleton / --instance / --mod / --mods-file）`);
   }
   return out;
 }
 
+/** 读既有实例：cos: 引用走运行时 COS GET（与 upload_instance.mjs 同源签名），否则读本地文件。 */
+async function readExistingInstance(refOrPath) {
+  if (typeof refOrPath === "string" && refOrPath.startsWith("cos:")) {
+    if (!COS_SECRET_ID || !COS_SECRET_KEY) {
+      throw new Error("图谱缺陷：编辑模式读 cos: 实例缺少云存储凭据（TCB_SECRET_ID / TCB_SECRET_KEY）");
+    }
+    const key = refOrPath.slice(4);
+    const obj = await cosGetJson(key);
+    if (obj == null) throw new Error(`图谱缺陷：COS 上找不到实例 ${refOrPath}`);
+    return obj;
+  }
+  if (!fs.existsSync(refOrPath)) throw new Error(`图谱缺陷：找不到实例文件：${refOrPath}`);
+  return JSON.parse(fs.readFileSync(refOrPath, "utf-8"));
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  let raw;
-  if (args.skeleton) {
-    raw = fs.readFileSync(args.skeleton, "utf-8");
+  let inst;
+  if (args.instance) {
+    // —— 编辑模式（方案 B）——
+    if (!args.mod && !args.modsFile) {
+      throw new Error("图谱缺陷：编辑模式须提供 --mod <json> 或 --mods-file <path>（至少一条 mod）");
+    }
+    const existing = await readExistingInstance(args.instance);
+    const modSpecs = [];
+    if (args.mod) modSpecs.push(JSON.parse(args.mod));
+    if (args.modsFile) {
+      const arr = JSON.parse(fs.readFileSync(args.modsFile, "utf-8"));
+      if (Array.isArray(arr)) modSpecs.push(...arr);
+      else modSpecs.push(arr);
+    }
+    inst = await editInstance(existing, modSpecs, args.packs, {
+      generatedBy: "assemble.mjs --instance (方案B 编辑)",
+    });
   } else {
-    raw = fs.readFileSync(0, "utf-8"); // stdin
+    // —— 新建模式（原样）——
+    let raw;
+    if (args.skeleton) {
+      raw = fs.readFileSync(args.skeleton, "utf-8");
+    } else {
+      raw = fs.readFileSync(0, "utf-8"); // stdin
+    }
+    const plan = JSON.parse(raw);
+    inst = await assembleInstance(plan, args.packs, { style: args.style });
   }
-  const plan = JSON.parse(raw);
-  const inst = await assembleInstance(plan, args.packs, { style: args.style });
   process.stdout.write(JSON.stringify(inst, null, 2));
 }
 

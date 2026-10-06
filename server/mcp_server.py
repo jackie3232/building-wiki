@@ -68,10 +68,14 @@ def generate_building_tool(instance_ref: str) -> str:
                       （Agent 写入云存储的键，如 cos:instances/<uuid>.json）；
                       本地调试可为磁盘文件路径。解析见 storage.read_instance。
     Returns:
-        默认（by-reference，与入参对称）：体素 BOX 清单写入云存储，返回一个
-        可公网 GET 的预签名 URL 字符串。前端/调用方按 URL 直接 fetch 取体素，
-        绕开 harness 对大输出（~0.5–1MB）的持久化/截断。
-        设 BW_BOXES_INLINE=1 时改为内联体素 JSON 字符串（本地调试用）。
+        默认（by-reference，与入参对称）：体素 BOX 清单写入云存储，返回 JSON 字符串：
+            {"boxes_ref": "<预签名URL>", "instance_ref": "<入参原样回传>"}
+        - boxes_ref：可公网 GET 的预签名 URL，前端/调用方按 URL 直接 fetch 取体素，
+          绕开 harness 对大输出（~0.5–1MB）的持久化/截断。
+        - instance_ref：把入参的实例图谱引用原样回传（2026-09-29 方案 B 新增），
+          使「编辑」链路闭环——前端从结构化工具结果稳定拿到下一次编辑所需的
+          instance_ref，无需解析 Agent 自然语言。
+        设 BW_BOXES_INLINE=1 时 boxes_ref 改为内联体素 JSON 字符串（本地调试用）。
     """
     # 包 ToolError：保留「图谱缺陷：…」诊断原文透传到模型；
     # 引用解析失败（缺凭据 / 键不存在 / JSON 损坏）也一并透传。
@@ -80,10 +84,14 @@ def generate_building_tool(instance_ref: str) -> str:
         geometry = compute_geometry(instance)
         boxes = geometry_to_boxes(geometry, instance=instance)
         if os.environ.get("BW_BOXES_INLINE") == "1":
-            return json.dumps(boxes, ensure_ascii=False)
-        # 出参走引用：写云存储，只回传可取路径（预签名 URL），与入参 cos: 引用对称。
-        key = new_object_key("oak-workspaces/boxes")
-        write_json(key, boxes)
-        return presign_url(key, expires=3600)
+            boxes_ref = boxes          # 本地调试：直接内联数组（前端按数组处理）
+        else:
+            # 出参走引用：写云存储，只回传可取路径（预签名 URL），与入参 cos: 引用对称。
+            key = new_object_key("oak-workspaces/boxes")
+            write_json(key, boxes)
+            boxes_ref = presign_url(key, expires=3600)
+        # 方案 B：instance_ref 原样回传，支撑「实例图谱为真相源 + 前端持有回灌 + 每轮重算」。
+        return json.dumps({"boxes_ref": boxes_ref, "instance_ref": instance_ref},
+                          ensure_ascii=False)
     except Exception as e:
         raise ToolError("%s: %s" % (type(e).__name__, e)) from e

@@ -259,54 +259,41 @@ function toolLabel(title) {
   return title.replace(/^mcp__[^_]+__/, "");
 }
 
-/* 体素结果收割：Agent 调 mcp__building-wiki__generate_building，其 rawOutput 含
- * ④⑤ 产出的体素 BOX 清单。可能形态：
- *   A. 直接是 JSON 数组（小输出）；
- *   B. {"result":"<JSON 字符串>"}（MCP 工具包一层 result）；
- *   C. {"result":"<URL 字符串>"} —— generate_building 已改为「回传云存储预签名 URL」，
- *      故正常路径就是这一形态（2026-09-23 实测）；若超大输出被 harness 落盘为
- *      <persisted-output> 引用，则从中提取 URL 再拉取。
- * 行号前缀（`1\t{`）先剥离；返回 array 或 URL/ref 字符串，无法识别则返回 null。 */
-function harvestBoxes(raw) {
-  if (typeof raw !== "string" || raw.length < 2) return null;
-  const text = raw.split("\n").map((l) => l.replace(/^\s*\d+\t/, "")).join("\n").trim();
-
-  const tryParse = (s) => {
-    try {
-      const a = JSON.parse(s);
-      if (Array.isArray(a) && a.length && a[0] && "x" in a[0]) return a;
-      if (a && typeof a.result === "string") {
-        const b = JSON.parse(a.result);
-        if (Array.isArray(b) && b.length && b[0] && "x" in b[0]) return b;
-      }
-    } catch { /* 不是可识别的体素 JSON */ }
-    return null;
-  };
-
-  if (text.startsWith("[")) {
-    const a = tryParse(text);
-    if (a) return a;
-  }
-  const b = tryParse(text);
-  if (b) return b;
-
-  // 情况 C：落盘引用 / URL 引用。
-  // rawOutput 实测形态（2026-09-23 抓取）：{"result":"https://...&q-signature=xxxx"}
-  // ⚠️ 不能用 /https?:\/\/\S+/ 直接抓 —— \S+ 会把结尾的 "} 一并吞掉，拼进 URL 后
-  //    COS 判 SignatureDoesNotMatch(403)，返回 XML，JSON.parse 随即抛
-  //    Unexpected token '<'。故先 JSON 解包取纯串，再按「排除定界符」取 URL。
+/* 方案 B（2026-09-29）：generate_building 现回传 JSON
+ *   {"boxes_ref": "<预签名URL 或 内联数组>", "instance_ref": "cos:instances/<uuid>.json"}
+ * boxes_ref 是 URL 时走 fetch；是数组时（BW_BOXES_INLINE）直接渲染。
+ * instance_ref 是下一次「增量/局部编辑」所需的实例图谱引用，回灌给前端持有。 */
+function harvestGenBuilding(raw) {
+  if (typeof raw !== "string" || raw.length < 2) return {};
+  let text = raw.split("\n").map((l) => l.replace(/^\s*\d+\t/, "")).join("\n").trim();
   const persisted = raw.match(/<persisted-output>([\s\S]*?)<\/persisted-output>/i);
-  if (persisted) return persisted[1].trim();
-
-  let cand = text;
-  try {
-    const j = JSON.parse(cand);
-    if (typeof j === "string") cand = j;
-    else if (j && typeof j.result === "string") cand = j.result;
-  } catch { /* 非 JSON 包装，按原文取 */ }
-  const u = cand.match(/https?:\/\/[^\s"'<>)\]}]+/);
-  if (u) return u[0];
-  return null;
+  if (persisted) text = persisted[1].trim();
+  let obj = null;
+  try { obj = JSON.parse(text); } catch { /* 非 JSON */ }
+  if (!obj) return {};
+  if (Array.isArray(obj)) return { boxes: obj };                 // 极旧形态：直接是数组
+  // harness 可能包若干层 {result: "<json 串>"}；逐层下钻直到见到 boxes_ref。
+  // （旧实现只在首次 JSON.parse 失败时才拆 result 层，但外层往往能解析成功，
+  //   于是永远进不到兼容分支 → 明明有 boxes_ref 却返回 {}。）
+  for (let i = 0; i < 4 && obj && typeof obj === "object"; i++) {
+    if (obj.boxes_ref !== undefined || obj.boxes !== undefined) break;
+    if (typeof obj.result === "string") {
+      try { obj = JSON.parse(obj.result); continue; } catch { break; }
+    }
+    if (typeof obj.result === "object" && obj.result) { obj = obj.result; continue; }
+    break;
+  }
+  if (!obj || typeof obj !== "object") {
+    return typeof obj === "string" ? { boxes: obj } : {};        // 旧形态：裸 URL 串
+  }
+  if (obj.boxes_ref !== undefined) {
+    return {
+      boxes: obj.boxes_ref,                       // URL 字符串 或 数组
+      instanceRef: obj.instance_ref || null,
+    };
+  }
+  if (obj.boxes !== undefined) return { boxes: obj.boxes, instanceRef: obj.instance_ref || null };
+  return {};
 }
 
 function handleFrame(frame, titles, state, onEvent) {
@@ -336,10 +323,11 @@ function handleFrame(frame, titles, state, onEvent) {
     if (upd.status !== "completed") return;
     onEvent({ type: "tool", label: toolLabel(name), phase: "done" });
 
-    // 全 Agent 形态：Agent 调 generate_building 算完 ④⑤，体素 BOX 经 rawOutput 回流
+    // 全 Agent 形态：Agent 调 generate_building 算完 ④⑤，BOX + instance 引用经 rawOutput 回流
     if (upd.rawOutput && name.includes("generate_building")) {
-      const out = harvestBoxes(upd.rawOutput);
-      if (out) state.boxes = out;           // 末次成功的（array 或 ref 字符串）
+      const r = harvestGenBuilding(upd.rawOutput);
+      if (r.boxes) state.boxes = r.boxes;                 // 末次成功的（array 或 ref 字符串）
+      if (r.instanceRef) state.instanceRef = r.instanceRef; // 方案 B：下一次编辑的引用
     }
   }
 }
@@ -364,7 +352,7 @@ async function runAgent(text, onEvent) {
   const reader = resp.body.getReader();
   const dec = new TextDecoder();
   const titles = new Map();
-  const state = { text: "", boxes: null, tools: 0, failed: 0 };
+  const state = { text: "", boxes: null, instanceRef: null, tools: 0, failed: 0 };
   let buf = "";
   let stop = false;
 
@@ -398,11 +386,61 @@ const chatToggle = document.getElementById("btn-chat-toggle");
 
 let statusTimer = null;
 function setStatus(msg, busy = false) {
-  statusEl.textContent = msg || "";
+  // busy 时保留「阶段说明 + 计时」子元素；非 busy 时走纯文本（textContent 会清掉子元素）
+  if (busy) {
+    statusEl.innerHTML = "";
+    statusEl.appendChild(document.createTextNode(msg || ""));
+    if (stageHintText) {
+      const hint = document.createElement("span");
+      hint.className = "stage-hint";
+      hint.textContent = stageHintText;
+      statusEl.appendChild(hint);
+    }
+  } else {
+    statusEl.textContent = msg || "";
+  }
   statusEl.classList.toggle("busy", busy);
   statusEl.classList.remove("hidden");
   clearTimeout(statusTimer);
   if (!busy) statusTimer = setTimeout(() => statusEl.classList.add("hidden"), 2600);
+}
+
+/* ── 阶段提示 + 计时器 ──────────────────────────────────────────────
+   一轮「新建」典型要 30~60s（其中 LLM 推理占绝大部分，④⑤ 引擎本身 <1s）。
+   只显示单个工具名时用户不知道还要等多久，故补：当前阶段说明 + 已耗时秒数。
+   ▸ 阶段说明按已完成的工具推进，用户始终知道"卡在哪一步"。 */
+let stageHintText = "";
+let stageCurrent = "";
+let stageT0 = 0;
+let stageTimer = null;
+
+// 各工具对应的人话阶段（toolLabel 已做工具名→中文，这里补"在干什么"）
+const STAGE_HINT = {
+  "读知识库": "正在读古建规制知识库",
+  "跑装配脚本": "正在装配实例图谱",
+  "写中间文件": "正在准备骨架",
+  "生成体素模型": "正在算几何、生成三维体素",
+};
+
+function startStageTimer() {
+  stageT0 = Date.now();
+  clearInterval(stageTimer);
+  stageTimer = setInterval(() => {
+    if (!stageHintText) return;
+    const s = Math.floor((Date.now() - stageT0) / 1000);
+    setStatus(stageCurrent || "处理中", true);
+    if (stageHintText.indexOf("·") < 0) {
+      stageHintText = (STAGE_HINT[stageCurrent] || stageHintText) + " · " + s + "s";
+    } else {
+      stageHintText = stageHintText.replace(/· \d+s$/, "· " + s + "s");
+    }
+  }, 1000);
+}
+
+function stopStageTimer() {
+  clearInterval(stageTimer);
+  stageTimer = null;
+  stageHintText = "";
 }
 
 let agentMsgEl = null;
@@ -429,12 +467,37 @@ chatToggle.addEventListener("click", () => {
 });
 
 /* ================= 主流程 ================= */
+// 方案 B（2026-09-29）：实例图谱为真相源，前端持有当前模型的实例引用，
+// 编辑时回灌给 Agent（让它 --instance 该引用做增量/局部修改），
+// 跑完用新回传的 instance_ref 更新本变量 —— 实现渐进式持续编辑。
+let currentInstanceRef = null;
+
+// 用户明确要「新建/重做」时，不回灌旧引用、并清空当前引用（回到新建分支）。
+function isNewBuildIntent(text) {
+  return /新建|新盖|再盖|重做|重新生成|推倒|从头|另(来|建|做)|换一个/.test(text);
+}
+
+// 方案 B：已有当前实例时，把引用装进 prompt，提示 Agent 走「编辑」而非「重建」。
+function buildPrompt(text) {
+  if (currentInstanceRef && !isNewBuildIntent(text)) {
+    return `[当前实例图谱引用] ${currentInstanceRef}\n`
+      + `（若需在该模型上增量/局部修改，请以上述引用为 --instance 调用 assemble.mjs 编辑，不要重建；`
+      + `否则按用户意图新建。）\n${text}`;
+  }
+  return text;
+}
+
 let busy = false;
 
 function onAgentEvent(ev) {
   if (ev.type === "text") { updateAgentChat(ev.text); return; }
   if (ev.type === "tool") {
     const mark = ev.phase === "failed" ? "✗" : ev.phase === "done" ? "✓" : "…";
+    // 阶段说明：工具开始时切换，结束/失败时保持最后一次（直到下一个工具）
+    if (ev.phase === "start") {
+      stageCurrent = ev.label;
+      stageHintText = STAGE_HINT[ev.label] || ev.label;
+    }
     setStatus(`${mark} ${ev.label}`, true);
   }
 }
@@ -458,11 +521,22 @@ async function send() {
   chatPanel.classList.remove("collapsed");
   chatToggle.textContent = "收起";
   appendChat("user", text);
+  stageCurrent = "推导骨架";
+  stageHintText = "正在理解需求、匹配规制";
   setStatus("Agent 正在推导骨架…", true);
+  startStageTimer();
+
+  // 方案 B（2026-09-29）：编辑时把当前实例引用回灌给 Agent，让其基于现有实例做增量/局部修改；
+  // 用户显式「新建/重做」则清空引用，走新建分支。
+  if (isNewBuildIntent(text)) currentInstanceRef = null;
+  const promptText = buildPrompt(text);
 
   try {
-    const state = await runAgent(text, onAgentEvent);
+    const state = await runAgent(promptText, onAgentEvent);
     if (state.text) updateAgentChat(state.text);
+
+    // 方案 B：回收本次产出的实例引用，供下次增量/局部编辑闭环（闭环关键一步）。
+    if (state.instanceRef) currentInstanceRef = state.instanceRef;
 
     // 全 Agent 形态：体素 BOX 已在 Agent 侧由 generate_building 算出，经 ACP 流回
     // （inline 数组，或被 harness 落盘为 <persisted-output> 引用字符串）。
@@ -478,7 +552,7 @@ async function send() {
     if (!boxes) {
       setStatus("Agent 未产出体素模型，请重试或换个说法");
       appendChat("agent", (state.text ? "\n\n" : "") +
-        "（本次未取到体素结果 —— 可能 Agent 在装配/上传/生成阶段被中断，换一种描述再试。）");
+        "（本次未取到体素结果：Agent 可能已生成成功，但前端没解析到工具返回值。若反复出现，请把控制台报错发我。）");
       return;
     }
 
@@ -488,6 +562,7 @@ async function send() {
     setStatus(`出错：${e.message}`);
     appendChat("agent", "（出错：" + e.message + "）");
   } finally {
+    stopStageTimer();
     busy = false;
     sendEl.disabled = false;
   }

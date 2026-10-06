@@ -6,10 +6,10 @@
  */
 window.BW_CONFIG = Object.assign({
   // 云托管容器（MCP 宿主）
-  MCP_URL: "https://building-wiki-310221-6-1258039591.sh.run.tcloudbase.com/mcp/",
+  MCP_URL: "https://building-wiki-323919-10-1258039591.sh.run.tcloudbase.com/mcp/",
   // OAK Agent 的 ACP 端点
-  ACP_URL: "https://building-wiki-d3gm9k9xwd651699f.api.tcloudbasegateway.com" +
-           "/v1/aibot/bots/agt-building-8gp5in9y2e59d69c/acp",
+  ACP_URL: "https://building-wiki-2-d8frzgtn5b631969.api.tcloudbasegateway.com" +
+           "/v1/aibot/bots/agt-building-9gtd7y5gd5a018a3/acp",
   // 由 config.local.js 覆盖；为空则页面提示补配置
   PUBLISHABLE_KEY: "",
 }, window.BW_LOCAL || {});

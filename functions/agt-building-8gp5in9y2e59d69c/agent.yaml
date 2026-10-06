@@ -58,9 +58,9 @@ system: |
 mcp_servers:
   - name: building-wiki
     type: url
-    # Cloud Run 服务域名（服务名 building-wiki；跨版本 012→016 域名不变，已实测）
-    # /mcp 与 /mcp/ 均可直连（无需斜杠重定向）。域名只跟服务名走，不随镜像版本变。
-    url: https://building-wiki-310221-6-1258039591.sh.run.tcloudbase.com/mcp
+    # Cloud Run 服务域名（服务名 building-wiki；新环境 building-wiki-2-d8frzgtn5b631969）
+    # /mcp 与 /mcp/ 均可直连（/mcp 会 307 重定向到 /mcp/）。域名只跟服务名走。
+    url: https://building-wiki-323919-10-1258039591.sh.run.tcloudbase.com/mcp
 
 tools:
   - type: mcp_toolset
