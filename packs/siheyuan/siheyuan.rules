@@ -332,9 +332,17 @@
     "modus": 3.3,
     "room": {
       "thickness": 0.3,
+      "taimingOutset": 0,
+      "baseRole": "taiji",
+      "stepRise": 0.15,
+      "stepWidth": 1.2,
+      "stepSideClear": 0.15,
+      "stepTread": 0.30,
+      "stepRole": "taduo",
       "heightDefault": 3.3,
       "miankuoDefault": 5,
       "jinshenDefault": 3,
+      "desc2_notes": "台明与踏步：taimingOutset=台基外扩(米)，本包取 0=与房屋底部同宽不外扩；baseRole=台基构件 key；stepRise/stepWidth/stepSideClear/stepTread=踏步单级高/宽/两侧留空/进深(米)；stepRole=踏步构件 key；级数由几何层按 ceil(taiming/stepRise) 自算，每级等高、总高恰为台明；院子地面(y=0)为踏步起算基准。",
       "desc": "房间围合墙/顶/地厚度(米)，原 ④ 常量 WALL_THICKNESS。房屋自身厚度，与院墙厚度(wall.*)语义不同故分列。heightDefault：角色未声明 height 时的回落基准。miankuoDefault / jinshenDefault：某角色未声明 miankuo / jinshen 时的回落基准（原为装配器 room() 里的字面量 5 / 3，已退成知识声明）。"
     },
     "door": {
@@ -343,7 +351,8 @@
       "at": "mingjian",
       "desc": "房门洞口宽/高(米，高自地面起)，原 ④ 常量 DOOR_WIDTH / DOOR_HEIGHT。与门体面阔(gateSpan)语义不同：门洞是墙上开的缺，门体是一栋建筑。 at：房门开在哪个开间（dict「开间」类目的 key；「各房门窗向院内开辟、门在明间」原为装配器里的硬编字段值）。"
     },
-    "courtDepthRatio": {
+    "courtDepthOf": {
+      "refRole": "neiyuan",
       "byRole": {
         "waiyuan": 0.42,
         "tingfangyuan": 0.55,
@@ -352,7 +361,7 @@
         "tingyuan": 0.78
       },
       "default": 0.45,
-      "desc": "露天院落进深=面阔×ratio，按院落角色：waiyuan=外院(最浅，南北短东西长)、tingfangyuan=厅房院(前堂，居中)、neiyuan=内院主院(最大，近正方形)、houzhaoyuan=后罩院及其前的次院(居中)。一进仅 tingyuan(庭院，既入口院又是主院、无独立院名)；二进=waiyuan+neiyuan；三进=waiyuan+neiyuan+houzhaoyuan；四进及以上前堂后寝=waiyuan+tingfangyuan+neiyuan+houzhaoyuan(+次院)。neiyuan=正房所在的主院(后寝)，取最靠南的正房院但跳过作过厅(usage=guoting)的那一进——过厅是前堂不是后寝；tingfangyuan=作过厅的那一进；waiyuan=倒座所在的外院；houzhaoyuan=neiyuan 之后的院。"
+      "desc": "露天院落进深 = 参照院面阔 × 本倍数。参照院由 refRole 指定（取北侧主位房为 zhengfang 的那一进，即内院主院；若本院自身即该进，则以自身面阔为参照）。倍数沿用原 courtDepthRatio 取值：waiyuan=外院(最浅，南北短东西长)、tingfangyuan=厅房院(前堂，居中)、neiyuan=内院主院(最大，近正方形)、houzhaoyuan=后罩院及其前的次院(居中)。一进仅 tingyuan；二进=waiyuan+neiyuan；三进=waiyuan+neiyuan+houzhaoyuan；四进及以上前堂后寝=waiyuan+tingfangyuan+neiyuan+houzhaoyuan(+次院)。⚠️ 相对旧 courtDepthRatio 的变化：基准由「本院自身面阔」改为「参照院面阔」——院深本应随主院规模联动，改开间数时全院深度同步变化更合中式形制。引擎只按本段执行乘算，不得内嵌任何公式或角色名。"
     },
     "layout": {
       "wing": {
@@ -366,36 +375,54 @@
       "miankuo": 5,
       "jinshen": 2,
       "height": 3.3,
+      "taiming": 0.9,
+      "taimingWhy": "正房台明最高（3 体素层）：厢房低一阶、倒座低两阶",
+      "taimingWhy": "正房台明最高",
       "desc": "正房面阔5间(1明+2次+2梢)；进深约6.5m(≈2×modus)，据《北京老城保护房屋修缮技术导则2019》正房五檩/七檩进深6.5~7m。height 暂与厢房持平(3.3)，待按等级校准——正房应最高。"
     },
     "xiangfang": {
       "miankuo": 3,
       "jinshen": 1.4,
       "height": 3.3,
+      "taiming": 0.6,
+      "taimingWhy": "厢房台明低于正房一阶（2 体素层）",
+      "taimingWhy": "厢房台明低于正房一步台阶(0.13m)",
       "desc": "厢房面阔3间；进深约4.5m(≈1.4×modus)，据导则厢房无廊进深4m、带廊5m。height 原 ④ 常量 WING_HEIGHT。"
     },
     "daozuofang": {
       "miankuo": 5,
       "jinshen": 1.4,
       "height": 3.3,
+      "taiming": 0.3,
+      "taimingWhy": "倒座房台明最低（1 体素层），位于外院",
+      "taimingWhy": "倒座房台明低于正房一步台阶",
       "desc": "倒座房面阔约同正房；进深较浅约4.5m。height 原 ④ 常量 WING_HEIGHT。"
     },
     "houzhaofang": {
       "miankuo": 5,
       "jinshen": 1.5,
       "height": 3.3,
+      "taiming": 0.9,
+      "taimingWhy": "后罩房台明同正房（3 体素层）；三进院地面标高另计",
+      "taimingWhy": "后罩房在末进，院地抬高一阶故台明再高一阶",
       "desc": "后罩房面阔约同正房；进深较浅约5m。height 原 ④ 常量 WING_HEIGHT。"
     },
     "chuihuamen": {
       "gateSpan": 3.0,
       "height": 3.6,
       "depth": 1.2,
+      "taiming": 0.9,
+      "taimingWhy": "垂花门台明与正房同高（3 体素层）",
+      "taimingWhy": "垂花门台明与正房同高",
       "desc": "垂花门面阔约一间(3.0m，比照宅门门道 gateSpan)；门楼比门道顶(3.3)略抬高至3.6；depth=门道进深(米)。"
     },
     "zhaimen": {
       "gateSpan": 3.0,
       "height": 3.3,
       "margin": 0.8,
+      "taiming": 0.9,
+      "taimingWhy": "宅门台明与正房同高（3 体素层）",
+      "taimingWhy": "宅门台明与正房同高",
       "desc": "宅门(大门)：门道面阔 gateSpan=3.0；门楼屋顶高 height=3.3(与房间/围墙齐平)；margin=门道端缘距院墙端留白(米)，使角部院墙完整闭合。**落在哪一端不在此声明**——由 dict.zhaimen.form.at 给（east-end），同一事实只允许一处表达。进深同所在房屋，不单列。"
     },
     "houmen": {
@@ -414,6 +441,9 @@
         "spanRatio": 0.85,
         "colSpacing": 2.5,
         "roofThickness": 0.2,
+      "taiming": 0.6,
+      "taimingWhy": "抄手游廊台明同厢房（2 体素层）",
+      "taimingWhy": "抄手游廊台明低于正房一步台阶",
         "desc": "游廊：height=廊顶高(米，原 ④ 常量 PERIPH_HEIGHT)；depth=廊深；spanRatio=廊长占房屋面阔比例；colSpacing=柱间距(米)；roofThickness=廊顶板厚。中轴穿堂口按 door.width 断开。"
       },
       "yingbi": {

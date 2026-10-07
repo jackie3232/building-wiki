@@ -237,10 +237,28 @@
       "desc": "围护与分隔的墙"
     },
     "taiji": {
-      "form": {"kind": "base"},
+      "form": {"kind": "base", "outset": "none", "build": "edgeRingWithCoreTop"},
       "color": "#9E9284",
       "label": "台基",
-      "desc": "承托房屋的台座"
+      "desc": "承托房屋的台座（台明）。台基与房屋底部同宽、不外出檐（form.outset=none），故踏步自台基前沿向外接、不占台面。台明高度按等级递减：正房/宅门/垂花门最高，厢房/倒座房/游廊低其一阶（一步台阶约 0.13m）。"
+    },
+    "taduo": {
+      "color": "#B8B0A4",
+      "material": "chengzhuan",
+      "label": "踏跺",
+      "desc": "出入台基的踏步石，设在门洞正前方、自台基前沿向外接至院子地面。级数随台明高度变（每级约 0.15m），仅台基有台阶的建筑生成。石色略浅于台基(#9E9284)以示区分。"
+    },
+    "taijibian": {
+      "color": "#A79C8E",
+      "material": "chengzhuan",
+      "label": "台基边梁",
+      "desc": "台基四周的阶条石边梁，满高、承托墙体。外侧可見，是台基的主要石作面。"
+    },
+    "taijitu": {
+      "color": "#8A7E6E",
+      "material": "chengzhuan",
+      "label": "台基顶面",
+      "desc": "台基中心填土的顶面（可行走面），仅顶面一层，四周边梁围合。"
     },
     "zhu": {
       "label": "柱",

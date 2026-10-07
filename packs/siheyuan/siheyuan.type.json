@@ -103,6 +103,20 @@
     "ref": "yuanqiang",
     "desc": "墙实体：boundarySegmentRealization（院墙环分段实现）模型中每侧墙环的实例。坐标由几何层按 ring 声明生成。段的分段实现者、墙种、墙高墙厚等实例属性由 rules 声明（occupancy / wall.taxonomy / norms.wall），本图谱不重复。"
   },
+  "platform": {
+    "desc": "台基与踏步：建筑与地面的接口。台基承托房屋，宽度与房屋底部同宽（不外出檐）；踏步自台基正面（开向院落一侧）向外接至院子地面，不占台面。坐标由几何层按本段声明生成；台明高度与踏步级数由 rules.norms 声明，本图谱不重复。",
+    "taiji": {
+      "ref": "taiji",
+      "withWidthOf": "buildingFootprint",
+      "desc": "台基实体：与房屋底部轮廓同宽（同 W×D），高=norms.<role>.taiming，不外出檐。台面即房屋地面基准 floor_top，墙体自此起算。"
+    },
+    "taduo": {
+      "ref": "taduo",
+      "side": "openSide",
+      "attachTo": "taijiFront",
+      "desc": "踏步实体：置于门洞正前方、自台基前沿向院落方向伸出；级数=ceil(taiming/stepRise)，单级宽=stepWidth，自院子地面(y=0)起升至台面(floor_top)。仅当该侧为门洞面（朝庭院开口）时生成。"
+    }
+  },
   "__source_of_truth__": {
     "note": "唯一权威源：知识包只此一份（函数端 Skill 的 packs/），直接编辑此处；服务端④⑤/硬闸只引用实例图谱自带的 appliedRules/appliedDict 快照，不回读本文件。"
   }

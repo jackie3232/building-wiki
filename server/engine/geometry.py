@@ -42,7 +42,11 @@ TOUR_CORNER_R = 0.80          # 拐点过渡半径：宅门在东南角，把直
 TOUR_LOOK_DEG = 35            # 驻足"轻扫一眼"的偏转角（度，负=偏西）；替代原先甩头 90°/掉头 180°
 
 # 体素边长（米）。越小越细、box 越多；越大越省、体素感越弱。MVP 提速版适中取值。
-VOXEL_SIZE = 0.6
+# 体素边长（米）。越小越细、box 越多；越大越省、体素感越弱。
+# 0.3 的取值依据：须容下古建最小可读构件——台阶单级(≈0.2~0.3)、墙厚(0.3)、
+# 台明一阶(0.3)；0.6 时这些全是"半格"，体素化后墙消失/台基被抹平/台阶看不出级数。
+# 本值属【造型层 ⑤】的实现参数，不写入知识包、④ 不感知（换 B-rep 只改 ⑤）。
+VOXEL_SIZE = 0.3
 
 # 中文名一律取自命名字典 —— 但 ⑤ 造型层与巡游路径都不再内置词表、也**绝不回读盘上 dict.json**。
 # 自动化端(④⑤)只引用实例图谱自带的 appliedDict 快照（智能端装配时已按需裁剪好的命名子集），
@@ -201,33 +205,44 @@ def _layout(instance):
     if not courtyards:
         return [], norms, modus
 
-    # 先算每院占地：w 沿 X（面阔），d 沿 Z（进深）
-    plotted = []
-    for c in courtyards:
+    # 每院占地：w 沿 X（面阔），d 沿 Z（进深）。
+    # 两趟：院深依赖【参照院面阔】(norms.courtDepthOf.refRole)，故先齐备各院面宽再定院深。
+    # 本层只按图谱已给的 role 取参照院，不重算院角色、不内嵌角色名。
+    def _span(c):
+        """本院面宽（沿 X）：取北/南任一有 miankuo 的建筑 × 模数；两面皆无则报图谱缺陷。"""
         enc = c.get("enclosure", {})
-        bei, nan, dong, xi = enc.get("bei"), enc.get("nan"), enc.get("dong"), enc.get("xi")
-        ref = bei or nan
-        # 面阔只从实例取值，代码不设缺省数字（原为 `_dim(ref,"miankuo",5)` 的硬编 5）。
-        # 南北两侧都没建筑 ⇒ 该院算不出占地，属图谱结构缺陷，必须报出来。
+        ref = enc.get("bei") or enc.get("nan")
         if not isinstance(ref, dict) or not isinstance(ref.get("miankuo"), (int, float)):
             raise ValueError(
                 "图谱缺陷：第 %s 进 南北两侧均无带 miankuo 的建筑，算不出院落面阔"
                 % c.get("sequence"))
-        w = ref["miankuo"] * modus
+        return ref["miankuo"] * modus
+
+    spans = [(c, _span(c)) for c in courtyards]
+    cdo = _norms_get(norms, ("courtDepthOf",), "院落进深(参照院面阔倍数)")
+    if not isinstance(cdo, dict):
+        raise ValueError(
+            "图谱缺陷：appliedRules.norms.courtDepthOf 须为对象"
+            "（含 refRole / byRole / default），实际 %r" % (type(cdo).__name__,))
+    ref_role = cdo.get("refRole")
+    by_role = cdo.get("byRole") or {}
+    # 参照院面宽：role==refRole 的那一院；单进院/自指时以自身为基准。
+    ref_w = next((w for c, w in spans if c.get("role") == ref_role), None)
+
+    plotted = []
+    for c, w in spans:
+        enc = c.get("enclosure", {})
+        bei, nan, dong, xi = enc.get("bei"), enc.get("nan"), enc.get("dong"), enc.get("xi")
         nd = _dim(bei, "jinshen", 0) * modus   # 缺房则进深记 0（无幽灵进深）
         sd = _dim(nan, "jinshen", 0) * modus
-        cdr = _norms_get(norms, ("courtDepthRatio",), "院落进深比例")
-        if isinstance(cdr, dict):
-            role = c.get("role")
-            cdr_map = cdr.get("byRole") or {}
-            ratio = cdr_map.get(role, cdr.get("default"))
-            if not isinstance(ratio, (int, float)):
-                raise ValueError(
-                    "图谱缺陷：appliedRules.norms.courtDepthRatio 未给 role=%r 的比例，"
-                    "且无 default" % (role,))
-        else:
-            ratio = cdr
-        court_depth = w * ratio   # 露天院落进深=面阔×按角色比例(waiyuan浅/neiyuan大/houzhaoyuan中)
+        base_w = ref_w if ref_w is not None else w
+        role = c.get("role")
+        ratio = by_role.get(role, cdo.get("default"))
+        if not isinstance(ratio, (int, float)):
+            raise ValueError(
+                "图谱缺陷：appliedRules.norms.courtDepthOf 未给 role=%r 的倍数，"
+                "且无 default" % (role,))
+        court_depth = base_w * ratio        # 进深 = 参照院面宽 × 本倍数（乘算仅此一处）
         d = nd + court_depth + sd
         plotted.append({"w": w, "d": d, "nd": nd, "sd": sd, "bei": bei, "nan": nan,
                         "dong": dong, "xi": xi, "c": c})
@@ -506,6 +521,36 @@ def _geo_slab(role, cx, cy, cz, w, h, d):
             "size": {"w": round(w, 3), "h": round(h, 3), "d": round(d, 3)}}
 
 
+def _geo_base_edge_ring(base_role, cx, cy, cz, W, H, D, norms=None):
+    """台基：周边阶条石边梁（满高）+ 中心填土顶面（仅顶面一层），返回构件清单。
+
+    对应 dict「台基」form.build = edgeRingWithCoreTop：真实台基是「石边压土面」，
+    外侧只见石边、顶面为可行走土面。实心满铺会让台基体素数超过建筑本体
+    （正房实测 3630 vs 2253），故按此构造拆分。
+
+    「边梁厚几格 / 顶面几层」是【造型层 ⑤】的实现参数（VOX 格的倍数），
+    **不写入知识包**、④ 不感知——换 B-rep 引擎时本函数整体替换即可。
+    构件 key 从 norms.room 读，知识包用不同 key 时此处无需改代码。
+    """
+    # 边梁厚 = 2 格（沿外轮廓一圈）；中心顶面 = 1 层。
+    edge_t = VOXEL_SIZE * 2
+    core_t = VOXEL_SIZE * 1
+    if W <= 2 * edge_t or D <= 2 * edge_t:
+        # 台面太小，挖空会碎掉 —— 退化为实心一块
+        return [_geo_slab(base_role, cx, cy, cz, W, H, D)]
+    inner_w = W - 2 * edge_t
+    inner_d = D - 2 * edge_t
+    return [
+        # 四条边梁（满高）：南北通长、东西居中段，避免四角重复计
+        _geo_slab(base_role, cx, cy, cz + (D - edge_t) / 2, W, H, edge_t),                  # 北
+        _geo_slab(base_role, cx, cy, cz - (D - edge_t) / 2, W, H, edge_t),                  # 南
+        _geo_slab(base_role, cx + (W - edge_t) / 2, cy, cz, edge_t, H, inner_d),             # 东
+        _geo_slab(base_role, cx - (W - edge_t) / 2, cy, cz, edge_t, H, inner_d),             # 西
+        # 中心填土顶面：仅顶面一层，位于台基顶（cy + H/2 之下 core_t 厚）
+        _geo_slab(base_role, cx, cy + H / 2 - core_t / 2, cz, inner_w, core_t, inner_d),
+    ]
+
+
 def _geo_room(role, cx, cz, W, H, D, open_side=None, norms=None, spec=None):
     """房间 = 台基(或地面) + 屋顶 + 四壁（朝庭院一侧留门洞，而非整面掏空），内部空心。
 
@@ -526,18 +571,23 @@ def _geo_room(role, cx, cz, W, H, D, open_side=None, norms=None, spec=None):
         tm = float(tm)
         outset = float(_norms_get(norms, ("room", "taimingOutset"), "台基外扩"))
         base_role = _norms_get(norms, ("room", "baseRole"), "房间底部构件角色")
-        base = _geo_slab(base_role, cx, tm / 2, cz, W + 2 * outset, tm, D + 2 * outset)
+        # 台基构造（知识包 dict 声明 build=edgeRingWithCoreTop）：周边阶条石边梁满高，
+        # 中心填土只留顶面一层——真实台基本就是「石边压土面」，且实心满铺会让体素量
+        # 超过建筑本体。边梁厚度/顶面层数是【造型层实现参数】，不入知识包。
+        _geo_base_parts = _geo_base_edge_ring(base_role, cx, tm / 2, cz,
+                                            W + 2 * outset, tm, D + 2 * outset, norms)
     else:
         tm = t
-        base = _geo_slab(role, cx, t / 2, cz, W, t, D)      # 无台基角色：回落为地面
+        _geo_base_parts = [_geo_slab(role, cx, t / 2, cz, W, t, D)]  # 无台基：回落为地面
     floor_top = tm
     roof_bot = H - t
+
     wall_h = roof_bot - floor_top                       # 墙高（地面顶 -> 屋顶底）
     y_wall = (floor_top + roof_bot) / 2                 # 墙竖向中点（floor_top=t 时即 H/2）
     open_set = {open_side} if isinstance(open_side, str) else set(open_side or [])
     comps = [
-        base,
-        _geo_slab(role, cx, H - t / 2, cz, W, t, D),        # 屋顶
+        *_geo_base_parts,                                          # 台基：边梁 + 中心顶面
+        _geo_slab(role, cx, H - t / 2, cz, W, t, D),            # 屋顶
     ]
     if "N" not in open_set:
         comps.append(_geo_slab(role, cx, y_wall, cz + D / 2 - t / 2, W, wall_h, t))   # 北墙
@@ -551,7 +601,56 @@ def _geo_room(role, cx, cz, W, H, D, open_side=None, norms=None, spec=None):
     # 破坏零漂移核验与产物可复现性。几何结果与顺序无关，此处仅固定顺序。
     for s in sorted(open_set):
         comps.extend(_geo_front_wall(role, cx, cz, W, H, D, t, wall_h, floor_top, roof_bot, s, norms))
+    # 入口踏步：仅在有台面高差（floor_top > 0，即知识包声明了台明）时生成，
+    # 落在与该侧门洞同中轴的位置（s 由 open_set 给，与 _geo_front_wall 同一侧）。
+    comps.extend(_geo_entry_steps(role, cx, cz, W, D, t, floor_top, s_open=open_set, norms=norms))
     return comps
+
+
+def _geo_entry_steps(role, cx, cz, W, D, wall_t, floor_top, s_open=(), norms=None):
+    """朝庭院各侧的入口踏步：自院子地面(y=0)逐级抬升至台面(floor_top)。
+
+    分层铁律：语义（构件 key）与规制（单级高/宽/进深/两侧留空）全部来自知识包
+    norms.room.step*，本层只按声明值落体素——不含任何建筑角色名或造型决策。
+    级数 = ceil(台面高 / 单级高)，每级等高、总高恰为台面（两侧留空量由 stepSideClear 声明，各级平齐）。
+    """
+    if floor_top <= 0:
+        return []
+    rise = _norms_get(norms, ("room", "stepRise"), "踏步单级高")
+    tread = _norms_get(norms, ("room", "stepTread"), "踏步单级进深")
+    width = _norms_get(norms, ("room", "stepWidth"), "踏步单级宽")
+    side_clear = _norms_get(norms, ("room", "stepSideClear"), "踏步两侧收进")
+    step_role = _norms_get(norms, ("room", "stepRole"), "踏步构件 key")
+    rise = float(rise); tread = float(tread)
+    width = float(width); side_clear = float(side_clear)
+    if rise <= 0 or tread <= 0 or width <= 0:
+        return []
+    n = int(math.ceil(floor_top / rise - 1e-9))
+    if n <= 0:
+        return []
+    out = []
+    for k in range(n):
+        # 每级高按【前 k 级之和已达的位置】与【剩余高度】均分，而非 floor_top/n：
+        # 后者除不尽时（如 0.32/3）末级顶面会差 ~1mm，累计不上台面。
+        y_bot = floor_top * (n - 1 - k) / n       # 本级底面高度（k=0 贴墙端即最高级，顶面=台面）
+        y_top = floor_top * (n - k) / n           # 本级顶面高度（k=n-1 贴院子端即最低级，顶面=单级高）
+        h = y_top - y_bot
+        w = width - 2 * side_clear                # 两侧留空（固定值，非逐级收进——垂带踏跺各级平齐）
+        if w <= 0 or h <= 0:
+            break
+        y = (y_bot + y_top) / 2                   # 本级竖向中点
+        # 自该侧墙外皮（|cz| + D/2）起，向外逐级伸出：第 k 级占据 k*tread 起的一段
+        run = tread * (k + 0.5)                   # 第 0 级贴墙，故偏移半个进深
+        for s in sorted(s_open):                  # 只在朝庭院的开口侧生成
+            if s == "N":
+                out.append(_geo_slab(step_role, cx, y, cz + D / 2 + run, w, h, tread))
+            elif s == "S":
+                out.append(_geo_slab(step_role, cx, y, cz - D / 2 - run, w, h, tread))
+            elif s == "E":
+                out.append(_geo_slab(step_role, cx + W / 2 + run, y, cz, tread, h, w))
+            else:  # W
+                out.append(_geo_slab(step_role, cx - W / 2 - run, y, cz, tread, h, w))
+    return out
 
 
 def _geo_gate_tower(role, cx, cz, W, base_h, top_h, D, norms=None):
